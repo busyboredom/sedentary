@@ -1,7 +1,7 @@
 {
   inputs = {
     naersk.url = "github:nmattia/naersk/master";
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-23.11";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-24.11";
     utils.url = "github:numtide/flake-utils";
   };
 
@@ -32,7 +32,7 @@
       defaultPackage = naersk-lib.buildPackage {
         src = ./.;
         doCheck = true;
-        pname = "waterbreak";
+        pname = "sedentary";
         nativeBuildInputs = [
           pkgs.makeWrapper 
           pkgs.pkg-config
@@ -42,7 +42,7 @@
           alsa-lib
         ];
         postInstall = ''
-          wrapProgram "$out/bin/waterbreak" --prefix LD_LIBRARY_PATH : "${libPath}"
+          wrapProgram "$out/bin/sedentary" --prefix LD_LIBRARY_PATH : "${libPath}"
         '';
       };
 

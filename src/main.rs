@@ -1,4 +1,11 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
+#![forbid(unsafe_code)]
+//#![warn(missing_docs)]
+#![warn(unreachable_pub)]
+#![warn(clippy::pedantic)]
+#![warn(clippy::cargo)]
+#![allow(clippy::module_name_repetitions)]
+#![allow(clippy::multiple_crate_versions)]
 
 mod water_break;
 
@@ -119,7 +126,7 @@ impl eframe::App for MyApp {
 
 impl MyApp {
     /// Called once before the first frame.
-    pub fn new(cc: &CreationContext<'_>) -> Self {
+    fn new(cc: &CreationContext<'_>) -> Self {
         // This is also where you can customize the look and feel of egui using
         // `cc.egui_ctx.set_visuals` and `cc.egui_ctx.set_fonts`.
 
@@ -180,21 +187,25 @@ impl MyApp {
             ui.add(TextEdit::multiline(&mut task.notes));
         };
 
-        CollapsingHeader::new("Subtasks")
-            .id_source(task.id())
-            .show(ui, |ui| {
-                dnd(ui, &task.title)
-                    .show(task.subtasks.iter_mut(), |ui, task, handle, _pressed| {
-                        Self::show_task(ctx, ui, task, handle);
-                    })
-                    .update_vec(&mut task.subtasks);
-                if ui.add(Button::new("New Subtask")).clicked() {
-                    task.subtasks.push(Todo::default());
-                }
+        CollapsingHeader::new(format!(
+            "Subtasks ({}/{})",
+            task.subtasks.iter().filter(|t| t.complete).count(),
+            task.subtasks.iter().count()
+        ))
+        .id_source(task.id())
+        .show(ui, |ui| {
+            dnd(ui, &task.title)
+                .show(task.subtasks.iter_mut(), |ui, task, handle, _pressed| {
+                    Self::show_task(ctx, ui, task, handle);
+                })
+                .update_vec(&mut task.subtasks);
+            if ui.add(Button::new("New Subtask")).clicked() {
+                task.subtasks.push(Todo::default());
+            }
 
-                // Remove subtasks marked for deletion.
-                task.subtasks.retain(|task| !task.delete);
-            });
+            // Remove subtasks marked for deletion.
+            task.subtasks.retain(|task| !task.delete);
+        });
     }
 }
 

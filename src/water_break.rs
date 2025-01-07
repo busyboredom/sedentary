@@ -18,7 +18,7 @@ const BREAK_COLOR: &str = "#ff7700";
 const WORK_COLOR: &str = "#0a9dff";
 
 impl MyApp {
-    pub fn progress_bar(
+    pub(crate) fn progress_bar(
         &mut self,
         ui: &mut Ui,
         phase: Phase,
@@ -78,7 +78,7 @@ impl MyApp {
         });
     }
 
-    pub fn settings(&mut self, ui: &mut Ui) {
+    pub(crate) fn settings(&mut self, ui: &mut Ui) {
         CollapsingHeader::new("Water break settings").show(ui, |ui| {
             ui.add(
                 egui::Slider::new(&mut self.water_break_settings.work_minutes, 0..=120)
@@ -91,13 +91,13 @@ impl MyApp {
         });
     }
 
-    pub fn switch_phase(&mut self) {
+    pub(crate) fn switch_phase(&mut self) {
         self.chime();
         self.phase_start = Instant::now();
         self.on_break = !self.on_break;
     }
 
-    pub fn chime(&self) {
+    pub(crate) fn chime(&self) {
         let on_break = self.on_break;
         std::thread::spawn(move || {
             // Get a output stream handle to the default physical sound device
@@ -128,10 +128,10 @@ impl MyApp {
 }
 
 #[derive(serde::Deserialize, serde::Serialize)]
-pub struct WaterBreakSettings {
-    pub visible: bool,
-    pub break_minutes: u32,
-    pub work_minutes: u32,
+pub(crate) struct WaterBreakSettings {
+    pub(crate) visible: bool,
+    pub(crate) break_minutes: u32,
+    pub(crate) work_minutes: u32,
 }
 
 impl Default for WaterBreakSettings {
@@ -144,15 +144,15 @@ impl Default for WaterBreakSettings {
     }
 }
 
-pub(super) struct Phase {
-    pub name: &'static str,
-    pub color: Color32,
-    pub next_color: Color32,
-    pub duration: Duration,
+pub(crate) struct Phase {
+    pub(crate) name: &'static str,
+    pub(crate) color: Color32,
+    pub(crate) next_color: Color32,
+    pub(crate) duration: Duration,
 }
 
 impl Phase {
-    pub fn new(app: &MyApp) -> Phase {
+    pub(crate) fn new(app: &MyApp) -> Phase {
         if app.on_break {
             Phase {
                 name: "Break",
