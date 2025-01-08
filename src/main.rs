@@ -27,8 +27,15 @@ use water_break::{Phase, WaterBreakSettings};
 
 fn main() -> Result<(), eframe::Error> {
     env_logger::init();
+    let icon = egui::IconData {
+        rgba: include_bytes!("../static/sedentary.webp").to_vec(),
+        width: 1028,
+        height: 1028,
+    };
     let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default().with_inner_size([480.0, 320.0]),
+        viewport: egui::ViewportBuilder::default()
+            .with_inner_size([480.0, 320.0])
+            .with_icon(icon),
         ..Default::default()
     };
     eframe::run_native(
@@ -90,9 +97,6 @@ impl eframe::App for MyApp {
         egui::TopBottomPanel::bottom(Id::new("Logo"))
         .show(ctx, |ui| {
             ui.horizontal(|ui| {
-                ui.add(
-                    egui::Image::new(egui::include_image!("../static/ingwaz.webp")).max_width(20.0),
-                );
                 if ui.add(Label::new("Donate XMR: 8BxpZ...UbLrb (click to copy)").sense(Sense::click())).on_hover_and_drag_cursor(CursorIcon::Default).is_pointer_button_down_on() {
                     ui.output_mut(|o| o.copied_text = "8BxpZSKtD9XZwgMLWrLV8S2hapXqMuUdvSrFncShVzXaXmVttjPB5ktE7MV5DVHufwRuZPXwdPFctHkckfkJ7eTpApUbLrb".to_string());
                     ui.add(Label::new("Copied!"));
