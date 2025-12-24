@@ -8,7 +8,7 @@ use eframe::{
     egui::{self, Button, CollapsingHeader, Ui, WidgetText},
     epaint::Color32,
 };
-use rodio::{source::Source, Decoder, OutputStream};
+use rodio::{Decoder, OutputStreamBuilder, source::Source};
 
 use crate::MyApp;
 
@@ -101,7 +101,7 @@ impl MyApp {
         let on_break = self.on_break;
         std::thread::spawn(move || {
             // Get a output stream handle to the default physical sound device
-            let (_stream, stream_handle) = OutputStream::try_default().unwrap();
+            let stream_handle = OutputStreamBuilder::open_default_stream().unwrap();
             // Load a sound from a file.
             let break_sound = Cursor::new(include_bytes!("../static/Break.mp3"));
             let work_sound = Cursor::new(include_bytes!("../static/Work.mp3"));
@@ -111,15 +111,12 @@ impl MyApp {
             // Play the sound directly on the device
             let sound_duration = if on_break {
                 let sound_duration = work_source.total_duration();
-                stream_handle
-                    .play_raw(work_source.convert_samples())
-                    .unwrap();
+                stream_handle.mixer().add(work_source);
                 sound_duration
             } else {
                 let sound_duration = break_source.total_duration();
-                stream_handle
-                    .play_raw(break_source.convert_samples())
-                    .unwrap();
+                stream_handle.mixer().add(break_source);
+
                 sound_duration
             };
             sleep(sound_duration.unwrap_or(Duration::from_secs(5)));

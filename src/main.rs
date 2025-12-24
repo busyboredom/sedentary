@@ -12,15 +12,15 @@ mod water_break;
 use std::time::Instant;
 
 use eframe::{
+    CreationContext,
     egui::{
-        self, include_image, Button, Checkbox, CollapsingHeader, Context, CursorIcon, Id, Label,
-        ScrollArea, Sense, TextEdit, Ui, Window,
+        self, Button, Checkbox, CollapsingHeader, Context, CursorIcon, Id, Label, ScrollArea,
+        Sense, TextEdit, Ui, Window, include_image,
     },
     emath::{Align, Vec2b},
     epaint::Color32,
-    CreationContext,
 };
-use egui_dnd::{dnd, DragDropItem, Handle};
+use egui_dnd::{DragDropItem, Handle, dnd};
 use uuid::Uuid;
 
 use water_break::{Phase, WaterBreakSettings};
@@ -45,7 +45,7 @@ fn main() -> Result<(), eframe::Error> {
             // This gives us image support:
             egui_extras::install_image_loaders(&cc.egui_ctx);
 
-            Box::new(MyApp::new(cc))
+            Ok(Box::new(MyApp::new(cc)))
         }),
     )
 }
@@ -98,7 +98,7 @@ impl eframe::App for MyApp {
         .show(ctx, |ui| {
             ui.horizontal(|ui| {
                 if ui.add(Label::new("Donate XMR: 8BxpZ...UbLrb (click to copy)").sense(Sense::click())).on_hover_and_drag_cursor(CursorIcon::Default).is_pointer_button_down_on() {
-                    ui.output_mut(|o| o.copied_text = "8BxpZSKtD9XZwgMLWrLV8S2hapXqMuUdvSrFncShVzXaXmVttjPB5ktE7MV5DVHufwRuZPXwdPFctHkckfkJ7eTpApUbLrb".to_string());
+                    ui.ctx().copy_text("8BxpZSKtD9XZwgMLWrLV8S2hapXqMuUdvSrFncShVzXaXmVttjPB5ktE7MV5DVHufwRuZPXwdPFctHkckfkJ7eTpApUbLrb".to_string());
                     ui.add(Label::new("Copied!"));
                 }
             })
@@ -196,7 +196,7 @@ impl MyApp {
             task.subtasks.iter().filter(|t| t.complete).count(),
             task.subtasks.iter().count()
         ))
-        .id_source(task.id())
+        .id_salt(task.id())
         .show(ui, |ui| {
             dnd(ui, &task.title)
                 .show(task.subtasks.iter_mut(), |ui, task, handle, _pressed| {
