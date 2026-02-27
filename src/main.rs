@@ -1,6 +1,8 @@
+//! Sedentary — a to-do app with work/break (Pomodoro-style) reminders.
+
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 #![forbid(unsafe_code)]
-//#![warn(missing_docs)]
+#![warn(missing_docs)]
 #![warn(unreachable_pub)]
 #![warn(clippy::pedantic)]
 #![warn(clippy::cargo)]
@@ -20,7 +22,7 @@ use eframe::{
     emath::{Align, Vec2b},
     epaint::Color32,
 };
-use egui_dnd::{DragDropItem, Handle, dnd};
+use egui_dnd::{Handle, dnd};
 use uuid::Uuid;
 
 use water_break::{Phase, WaterBreakSettings};
@@ -83,7 +85,7 @@ impl eframe::App for MyApp {
             });
             let time_remaining = phase.duration.saturating_sub(elapsed);
 
-            self.progress_bar(ui, phase, elapsed, time_remaining);
+            self.progress_bar(ui, &phase, elapsed, time_remaining);
             self.settings(ui);
 
             if time_remaining.is_zero() {
@@ -140,7 +142,7 @@ impl MyApp {
             return eframe::get_value(storage, eframe::APP_KEY).unwrap_or_default();
         }
 
-        Default::default()
+        MyApp::default()
     }
 
     fn show_task(ctx: &Context, ui: &mut Ui, task: &mut Todo, handle: Handle) {
@@ -189,14 +191,14 @@ impl MyApp {
         });
         if task.show_notes {
             ui.add(TextEdit::multiline(&mut task.notes));
-        };
+        }
 
         CollapsingHeader::new(format!(
             "Subtasks ({}/{})",
             task.subtasks.iter().filter(|t| t.complete).count(),
-            task.subtasks.iter().count()
+            task.subtasks.len()
         ))
-        .id_salt(task.id())
+        .id_salt(task.id)
         .show(ui, |ui| {
             dnd(ui, &task.title)
                 .show(task.subtasks.iter_mut(), |ui, task, handle, _pressed| {
@@ -214,6 +216,7 @@ impl MyApp {
 }
 
 #[derive(serde::Deserialize, serde::Serialize)]
+#[allow(clippy::struct_excessive_bools)]
 struct Todo {
     id: Uuid,
     title: String,
@@ -223,18 +226,6 @@ struct Todo {
     delete: bool,
     confirm_deletion: bool,
     complete: bool,
-}
-
-impl DragDropItem for Todo {
-    fn id(&self) -> Id {
-        Id::new(format!("Task ID: {}", self.id))
-    }
-}
-
-impl DragDropItem for &mut Todo {
-    fn id(&self) -> Id {
-        Id::new(format!("Task ID: {}", self.id))
-    }
 }
 
 impl Default for Todo {
@@ -249,5 +240,11 @@ impl Default for Todo {
             confirm_deletion: false,
             complete: false,
         }
+    }
+}
+
+impl std::hash::Hash for Todo {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.id.hash(state);
     }
 }

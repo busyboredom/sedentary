@@ -1,6 +1,5 @@
 use std::{
     io::Cursor,
-    thread::sleep,
     time::{Duration, Instant},
 };
 
@@ -8,7 +7,7 @@ use eframe::{
     egui::{self, Button, CollapsingHeader, Ui, WidgetText},
     epaint::Color32,
 };
-use rodio::{Decoder, OutputStreamBuilder, source::Source};
+use rodio::{Decoder, DeviceSinkBuilder, Player};
 
 use crate::MyApp;
 
@@ -21,7 +20,7 @@ impl MyApp {
     pub(crate) fn progress_bar(
         &mut self,
         ui: &mut Ui,
-        phase: Phase,
+        phase: &Phase,
         elapsed: Duration,
         time_remaining: Duration,
     ) {
@@ -36,7 +35,7 @@ impl MyApp {
                 .clicked()
             {
                 self.switch_phase();
-            };
+            }
 
             if ui
                 .add(Button::new(
@@ -60,7 +59,7 @@ impl MyApp {
                         .map_or(Duration::ZERO, |paused| paused.elapsed());
                     self.paused_at = None;
                 }
-            };
+            }
 
             ui.add(
                 egui::ProgressBar::new(elapsed.as_secs_f32() / phase.duration.as_secs_f32())
@@ -100,33 +99,28 @@ impl MyApp {
     pub(crate) fn chime(&self) {
         let on_break = self.on_break;
         std::thread::spawn(move || {
-            // Get a output stream handle to the default physical sound device
-            let stream_handle = OutputStreamBuilder::open_default_stream().unwrap();
-            // Load a sound from a file.
-            let break_sound = Cursor::new(include_bytes!("../static/Break.mp3"));
-            let work_sound = Cursor::new(include_bytes!("../static/Work.mp3"));
-            // Decode that sound file into a source
-            let break_source = Decoder::new(break_sound).unwrap();
-            let work_source = Decoder::new(work_sound).unwrap();
-            // Play the sound directly on the device
-            let sound_duration = if on_break {
-                let sound_duration = work_source.total_duration();
-                stream_handle.mixer().add(work_source);
-                sound_duration
+            // Open the default audio device.
+            let mut handle = DeviceSinkBuilder::open_default_sink().unwrap();
+            handle.log_on_drop(false);
+            let player = Player::connect_new(handle.mixer());
+            // Load and decode the appropriate sound from the embedded bytes.
+            let source = if on_break {
+                Decoder::new(Cursor::new(include_bytes!("../static/Work.mp3").as_slice())).unwrap()
             } else {
-                let sound_duration = break_source.total_duration();
-                stream_handle.mixer().add(break_source);
-
-                sound_duration
+                Decoder::new(Cursor::new(
+                    include_bytes!("../static/Break.mp3").as_slice(),
+                ))
+                .unwrap()
             };
-            sleep(sound_duration.unwrap_or(Duration::from_secs(5)));
+            player.append(source);
+            // Block this thread until playback finishes so the handle stays alive.
+            player.sleep_until_end();
         });
     }
 }
 
 #[derive(serde::Deserialize, serde::Serialize)]
 pub(crate) struct WaterBreakSettings {
-    pub(crate) visible: bool,
     pub(crate) break_minutes: u32,
     pub(crate) work_minutes: u32,
 }
@@ -134,13 +128,13 @@ pub(crate) struct WaterBreakSettings {
 impl Default for WaterBreakSettings {
     fn default() -> Self {
         WaterBreakSettings {
-            visible: false,
             break_minutes: DEFAULT_BREAK_MINUTES,
             work_minutes: DEFAULT_WORK_MINUTES,
         }
     }
 }
 
+#[derive(Clone, Copy)]
 pub(crate) struct Phase {
     pub(crate) name: &'static str,
     pub(crate) color: Color32,
@@ -155,14 +149,18 @@ impl Phase {
                 name: "Break",
                 color: Color32::from_hex(BREAK_COLOR).unwrap(),
                 next_color: Color32::from_hex(WORK_COLOR).unwrap(),
-                duration: Duration::from_secs(app.water_break_settings.break_minutes as u64 * 60),
+                duration: Duration::from_secs(
+                    u64::from(app.water_break_settings.break_minutes) * 60,
+                ),
             }
         } else {
             Phase {
                 name: "Work",
                 color: Color32::from_hex(WORK_COLOR).unwrap(),
                 next_color: Color32::from_hex(BREAK_COLOR).unwrap(),
-                duration: Duration::from_secs(app.water_break_settings.work_minutes as u64 * 60),
+                duration: Duration::from_secs(
+                    u64::from(app.water_break_settings.work_minutes) * 60,
+                ),
             }
         }
     }

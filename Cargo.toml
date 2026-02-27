@@ -2,15 +2,19 @@
 name = "sedentary"
 version = "0.1.0"
 edition = "2024"
+description = "A simple to-do app with water break reminders"
+license = "MIT"
+repository = "https://github.com/busyboredom/sedentary"
+readme = "README.md"
+keywords = ["egui", "todo", "productivity", "pomodoro"]
+categories = ["gui"]
 
 [dependencies]
-eframe = { version = "0.33", features = ["persistence", "android-native-activity"] }
+eframe = { version = "0.33", features = ["persistence"] }
 egui_dnd = "0.14"
 egui_extras = { version = "0.33", features = ["default", "image"] }
 env_logger = { version = "0.11", default-features = false, features = ["auto-color", "humantime"] }
-image = { version = "0.25", features = ["webp"] }
 log = "0.4"
-native-dialog = "0.9"
-rodio = "0.21"
+rodio = "0.22"
 serde = "1"
 uuid = { version = "1", features = ["v4", "serde"] }
