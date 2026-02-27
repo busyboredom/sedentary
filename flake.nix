@@ -2,21 +2,29 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     utils.url = "github:numtide/flake-utils";
-    naersk.url = "github:nmattia/naersk/master";
+    crane.url = "github:ipetkov/crane";
+    fenix = {
+      url = "github:nix-community/fenix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs =
     {
       nixpkgs,
       utils,
-      naersk,
+      crane,
+      fenix,
       ...
     }:
     utils.lib.eachDefaultSystem (
       system:
       let
-        pkgs = import nixpkgs { inherit system; };
-        naersk-lib = pkgs.callPackage naersk { };
+        pkgs = import nixpkgs {
+          inherit system;
+          overlays = [ fenix.overlays.default ];
+        };
+        craneLib = crane.mkLib pkgs;
 
         runtimeLibs = with pkgs; [
           libGL
@@ -37,9 +45,14 @@
         name = "sedentary";
       in
       {
-        packages.default = naersk-lib.buildPackage {
-          src = ./.;
-          doCheck = true;
+        packages.default = craneLib.buildPackage {
+          src = pkgs.lib.cleanSourceWith {
+            src = ./.;
+            filter = path: type:
+              (builtins.match ".*static/.*" path != null) ||
+              (craneLib.filterCargoSources path type);
+          };
+          strictDeps = true;
           pname = "${name}";
           nativeBuildInputs = with pkgs; [
             makeWrapper
@@ -80,7 +93,7 @@
                   rust-analyzer
                   rustPackages.clippy
                   rustc
-                  rustfmt
+                  pkgs.fenix.latest.rustfmt
                   tokei
                   lldb
                 ]
