@@ -58,8 +58,23 @@
             makeWrapper
             pkg-config
             imagemagick
+            copyDesktopItems
           ];
           buildInputs = runtimeLibs;
+          
+          desktopItems = [
+            (pkgs.makeDesktopItem {
+              name = "sedentary";
+              desktopName = "Sedentary";
+              comment = "A simple to-do app with water break reminders";
+              exec = "sedentary";
+              icon = "sedentary";
+              terminal = false;
+              type = "Application";
+              categories = [ "Utility" ];
+            })
+          ];
+
           postInstall = ''
             wrapProgram "$out/bin/sedentary" --prefix LD_LIBRARY_PATH : "${libPath}"
             for i in 16 24 48 64 96 128 256 512; do
