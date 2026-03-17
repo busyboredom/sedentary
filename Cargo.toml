@@ -12,6 +12,8 @@ categories = ["gui"]
 [dependencies]
 anyhow = "1"
 image = { version = "0.25", default-features = false, features = ["webp"] }
+indexmap = { version = "2.13.0", features = ["serde"] }
+jiff = { version = "0.2.21", features = ["serde"] }
 rodio = "0.22"
 serde = { version = "1", features = ["derive"] }
 tokio = { version = "1", features = ["time"] }

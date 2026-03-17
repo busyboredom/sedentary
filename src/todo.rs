@@ -1,7 +1,7 @@
 use cosmic::widget;
 use uuid::Uuid;
 
-use crate::config::TodoData;
+use crate::config::{RecurrenceRule, TodoData};
 
 /// Which part of a task row the cursor is hovering over during a drag.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -12,7 +12,6 @@ pub(crate) enum DropZone {
     Below,
 }
 
-#[allow(clippy::struct_excessive_bools)]
 pub(crate) struct Todo {
     pub(crate) id: Uuid,
     pub(crate) title: String,
@@ -20,6 +19,66 @@ pub(crate) struct Todo {
     pub(crate) notes: widget::text_editor::Content,
     pub(crate) subtasks: Vec<Todo>,
     pub(crate) complete: bool,
+    pub(crate) deadline: Option<jiff::Timestamp>,
+    pub(crate) recurrence: Option<RecurrenceRule>,
+    pub(crate) recurrence_int_d: Option<String>,
+    pub(crate) recurrence_int_h: Option<String>,
+    pub(crate) recurrence_int_m: Option<String>,
+    pub(crate) deadline_time_input: Option<String>,
+}
+
+impl Todo {
+    /// Forces the deadline to align with the next occurrence of the configured recurrence logic.
+    pub(crate) fn apply_recurrence_to_deadline(&mut self) {
+        if let Some(rule) = &self.recurrence {
+            let now = jiff::Timestamp::now();
+
+            // User specifically requested that for Intervals, we always reset to now + interval.
+            if let crate::config::RecurrenceRule::Interval(_) = rule
+                && let Some(next_ts) = rule.next_occurrence(now)
+            {
+                self.deadline = Some(next_ts);
+                let zdt = next_ts.to_zoned(jiff::tz::TimeZone::system());
+                self.deadline_time_input = Some(format!(
+                    "{:02}:{:02}",
+                    zdt.time().hour(),
+                    zdt.time().minute()
+                ));
+                return;
+            }
+
+            let next_ts_opt = rule.first_occurrence_at_or_after(now);
+
+            // If current deadline is valid AND there isn't a *sooner* valid occurrence,
+            // we keep the current deadline. This allows adding an earlier day to jump to it.
+            if let Some(d) = self.deadline
+                && d >= now
+                && rule.is_valid_occurrence(d)
+            {
+                if let Some(next_ts) = next_ts_opt {
+                    // Only keep current if the new calculated `next_ts` isn't strictly sooner
+                    // (e.g. if we had Friday and just added Tuesday, next_ts is Tuesday, d is Friday).
+                    if d <= next_ts {
+                        return;
+                    }
+                } else {
+                    return;
+                }
+            }
+
+            if let Some(next_ts) = next_ts_opt {
+                self.deadline = Some(next_ts);
+                let zdt = next_ts.to_zoned(jiff::tz::TimeZone::system());
+                self.deadline_time_input = Some(format!(
+                    "{:02}:{:02}",
+                    zdt.time().hour(),
+                    zdt.time().minute()
+                ));
+            } else if self.deadline.is_none() {
+                self.deadline = Some(now);
+            }
+        }
+    }
 }
 
 impl Clone for Todo {
@@ -31,6 +90,12 @@ impl Clone for Todo {
             notes: widget::text_editor::Content::with_text(&self.notes.text()),
             subtasks: self.subtasks.clone(),
             complete: self.complete,
+            deadline: self.deadline,
+            recurrence: self.recurrence.clone(),
+            recurrence_int_d: self.recurrence_int_d.clone(),
+            recurrence_int_h: self.recurrence_int_h.clone(),
+            recurrence_int_m: self.recurrence_int_m.clone(),
+            deadline_time_input: self.deadline_time_input.clone(),
         }
     }
 }
@@ -44,6 +109,12 @@ impl Default for Todo {
             notes: widget::text_editor::Content::new(),
             subtasks: Vec::new(),
             complete: false,
+            deadline: None,
+            recurrence: None,
+            recurrence_int_d: None,
+            recurrence_int_h: None,
+            recurrence_int_m: None,
+            deadline_time_input: None,
         }
     }
 }
@@ -57,6 +128,30 @@ impl From<TodoData> for Todo {
             notes: widget::text_editor::Content::with_text(&data.notes),
             subtasks: data.subtasks.into_iter().map(Self::from).collect(),
             complete: data.complete,
+            deadline: data.deadline,
+            recurrence: data.recurrence.clone(),
+            recurrence_int_d: match &data.recurrence {
+                Some(RecurrenceRule::Interval(span)) => Some(span.get_days().to_string()),
+                _ => None,
+            },
+            recurrence_int_h: match &data.recurrence {
+                Some(RecurrenceRule::Interval(span)) => Some(span.get_hours().to_string()),
+                _ => None,
+            },
+            recurrence_int_m: match &data.recurrence {
+                Some(RecurrenceRule::Interval(span)) => Some(span.get_minutes().to_string()),
+                _ => None,
+            },
+            deadline_time_input: if let Some(ts) = data.deadline {
+                let zdt = ts.to_zoned(jiff::tz::TimeZone::UTC);
+                Some(format!(
+                    "{:02}:{:02}",
+                    zdt.time().hour(),
+                    zdt.time().minute()
+                ))
+            } else {
+                None
+            },
         }
     }
 }
@@ -69,6 +164,8 @@ impl From<&Todo> for TodoData {
             notes: todo.notes.text(),
             subtasks: todo.subtasks.iter().map(Self::from).collect(),
             complete: todo.complete,
+            deadline: todo.deadline,
+            recurrence: todo.recurrence.clone(),
         }
     }
 }
@@ -102,6 +199,22 @@ impl TodoList {
     /// Returns an iterator over the top-level items.
     pub(crate) fn iter(&self) -> std::slice::Iter<'_, Todo> {
         self.items.iter()
+    }
+
+    /// Find a Todo by ID (recursive).
+    pub(crate) fn find(&self, id: Uuid) -> Option<&Todo> {
+        fn find_in(todos: &[Todo], id: Uuid) -> Option<&Todo> {
+            for todo in todos {
+                if todo.id == id {
+                    return Some(todo);
+                }
+                if let Some(found) = find_in(&todo.subtasks, id) {
+                    return Some(found);
+                }
+            }
+            None
+        }
+        find_in(&self.items, id)
     }
 
     /// Find a mutable reference to a Todo by ID (recursive).
@@ -144,7 +257,7 @@ impl TodoList {
             target_id: Uuid,
             new_todo: Todo,
             offset: usize,
-        ) -> Result<(), Todo> {
+        ) -> Result<(), Box<Todo>> {
             if let Some(pos) = todos.iter().position(|t| t.id == target_id) {
                 todos.insert(pos + offset, new_todo);
                 return Ok(());
@@ -153,10 +266,10 @@ impl TodoList {
             for todo in todos {
                 match insert_in(&mut todo.subtasks, target_id, passed, offset) {
                     Ok(()) => return Ok(()),
-                    Err(returned) => passed = returned,
+                    Err(returned) => passed = *returned,
                 }
             }
-            Err(passed)
+            Err(Box::new(passed))
         }
         insert_in(&mut self.items, target_id, new_todo, offset).is_ok()
     }
@@ -169,6 +282,27 @@ impl TodoList {
         self.insert_relative(target_id, new_todo, 1)
     }
 
+    /// Recursively move completed tasks to the bottom of their respective arrays.
+    pub(crate) fn pop_completed(&mut self) {
+        fn pop_in(todos: &mut Vec<Todo>) {
+            for todo in todos.iter_mut() {
+                pop_in(&mut todo.subtasks);
+            }
+            // stable_partition is not in std, so we use retain + extend
+            let mut completed = Vec::new();
+            let mut i = 0;
+            while i < todos.len() {
+                if todos[i].complete {
+                    completed.push(todos.remove(i));
+                } else {
+                    i += 1;
+                }
+            }
+            todos.extend(completed);
+        }
+        pop_in(&mut self.items);
+    }
+
     /// Nest a Todo as a subtask of a target Todo.
     pub(crate) fn nest_inside(&mut self, target_id: Uuid, new_todo: Todo) -> bool {
         if let Some(target) = self.find_mut(target_id) {
@@ -177,6 +311,54 @@ impl TodoList {
         } else {
             false
         }
+    }
+
+    /// Check completed recurring tasks. If `now` is past the halfway point to their next deadline,
+    /// uncheck them and advance the deadline. Returns true if any task was changed.
+    pub(crate) fn tick_recurrences(&mut self, now: jiff::Timestamp) -> bool {
+        fn tick_in(todos: &mut [Todo], now: jiff::Timestamp) -> bool {
+            let mut changed = false;
+            for todo in todos.iter_mut() {
+                if tick_in(&mut todo.subtasks, now) {
+                    changed = true;
+                }
+
+                if todo.complete
+                    && let (Some(mut deadline), Some(rule)) = (todo.deadline, &todo.recurrence)
+                {
+                    let mut advanced = false;
+                    while let Some(next_deadline) = rule.next_occurrence(deadline) {
+                        if next_deadline <= deadline {
+                            break;
+                        }
+                        let total_diff = next_deadline.duration_since(deadline);
+                        let midpoint = deadline.checked_add(total_diff / 2).unwrap_or(deadline);
+
+                        if now >= midpoint {
+                            deadline = next_deadline;
+                            todo.deadline = Some(deadline);
+                            advanced = true;
+                            changed = true;
+                        } else {
+                            break;
+                        }
+                    }
+
+                    if advanced {
+                        todo.complete = false;
+                        // Sync time input if we advanced
+                        let zdt = deadline.to_zoned(jiff::tz::TimeZone::system());
+                        todo.deadline_time_input = Some(format!(
+                            "{:02}:{:02}",
+                            zdt.time().hour(),
+                            zdt.time().minute()
+                        ));
+                    }
+                }
+            }
+            changed
+        }
+        tick_in(&mut self.items, now)
     }
 }
 
@@ -295,11 +477,85 @@ mod tests {
     #[test]
     fn drag_to_end() {
         // Simulate dragging A to end: remove(A) -> push(A)
-        let (mut list, a, _, _) = sample_list();
+        let (mut list, a, _b, _c) = sample_list();
         let removed = list.remove(a).unwrap();
         list.push(removed);
         assert_eq!(list.items()[0].title, "B");
+        assert_eq!(list.items()[2].title, "A");
+    }
+
+    #[test]
+    fn pop_completed_moves_to_bottom() {
+        let (mut list, a, _b, _c) = sample_list();
+        // Complete A
+        list.find_mut(a).unwrap().complete = true;
+        list.pop_completed();
+        // A should be moved to the end
+        assert_eq!(list.items()[0].title, "B");
         assert_eq!(list.items()[1].title, "C");
         assert_eq!(list.items()[2].title, "A");
+    }
+
+    #[test]
+    fn tick_recurrences_updates_deadline() {
+        let mut todo = make_todo(Uuid::new_v4(), "Recurring");
+        todo.complete = true;
+        // set deadline 2 days ago
+        let past_deadline = jiff::Timestamp::now()
+            .checked_sub(jiff::Span::new().hours(48))
+            .unwrap();
+        todo.deadline = Some(past_deadline);
+        // set recurrence: interval 1 day
+        todo.recurrence = Some(crate::config::RecurrenceRule::Interval(
+            jiff::Span::new().hours(24),
+        ));
+
+        let mut list = TodoList::new(vec![todo]);
+
+        let changed = list.tick_recurrences(jiff::Timestamp::now());
+        assert!(changed);
+
+        let updated = list.items().first().unwrap();
+        assert!(!updated.complete, "Task should be unchecked");
+        assert!(
+            updated.deadline.unwrap() > past_deadline,
+            "Deadline should be advanced"
+        );
+    }
+
+    #[test]
+    fn overdue_move_to_future() {
+        let mut todo = Todo::default();
+        let now = jiff::Timestamp::now();
+        let yesterday = now.checked_sub(jiff::Span::new().hours(24)).unwrap();
+        todo.deadline = Some(yesterday);
+
+        // Set recurrence to 1 day interval
+        todo.recurrence = Some(crate::config::RecurrenceRule::Interval(
+            jiff::Span::new().days(1),
+        ));
+
+        // Before fix, this would have returned early and kept it yesterday
+        todo.apply_recurrence_to_deadline();
+
+        // Check that deadline is now (or at least >= now)
+        assert!(todo.deadline.unwrap() >= now);
+    }
+
+    #[test]
+    fn interval_update_resets_deadline() {
+        let mut todo = Todo::default();
+        let now = jiff::Timestamp::now();
+        let tomorrow = now.checked_add(jiff::Span::new().hours(24)).unwrap();
+        todo.deadline = Some(tomorrow);
+
+        // Set recurrence to 1 hour interval
+        todo.recurrence = Some(crate::config::RecurrenceRule::Interval(
+            jiff::Span::new().hours(1),
+        ));
+        todo.apply_recurrence_to_deadline();
+
+        // Check that deadline is now reset to roughly now + 1 hour (much sooner than tomorrow)
+        assert!(todo.deadline.unwrap() < tomorrow);
     }
 }

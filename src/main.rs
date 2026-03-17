@@ -22,7 +22,12 @@ use cosmic::{
     iced::{Subscription, futures::SinkExt},
     widget,
 };
+use jiff::civil::Date;
 use uuid::Uuid;
+
+/// A date that represents no date selected, 'cause cosmic
+/// doesn't provide a way to represent that.
+const CALENDAR_EMPTY: Date = Date::constant(1, 1, 1);
 
 use crate::{
     config::{Config, TodoData},
@@ -47,8 +52,18 @@ struct AppModel {
     pending_delete: Option<Uuid>,
     /// Whether the settings panel is visible.
     show_settings: bool,
-    config_context: Option<cosmic_config::Config>,
+    config_path: Option<cosmic_config::Config>,
     drag: DragState,
+    active_date_picker: ActiveDatePicker,
+    calendar_model: cosmic::widget::calendar::CalendarModel,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ActiveDatePicker {
+    /// Hide calandar.
+    None,
+    /// Show calandar to pick a deadline for this task.
+    Task(Uuid),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -97,6 +112,30 @@ enum Message {
     DragToEnd,
     /// External config changed.
     UpdateConfig(Config),
+    /// Toggle the date picker for a task by uuid.
+    ToggleDatePicker(Uuid),
+    CloseDatePicker,
+    SetDeadlineDate(Uuid, jiff::civil::Date),
+    UpdateDeadlineTimeInput(Uuid, String),
+    SetDeadlineTime(Uuid, String),
+    SetRecurrenceType(Uuid, RecurrenceType),
+    ClearDeadline(Uuid),
+    // These are Strings just because cosmic doesn't have a good
+    // numeric input widget.
+    UpdateRecurrenceIntervalDays(Uuid, String),
+    UpdateRecurrenceIntervalHours(Uuid, String),
+    UpdateRecurrenceIntervalMinutes(Uuid, String),
+    ToggleWeekday(Uuid, crate::config::WeekdayConfig),
+    CalendarPrevMonth,
+    CalendarNextMonth,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RecurrenceType {
+    None,
+    Interval,
+    Weekly,
+    Yearly,
 }
 
 impl cosmic::Application for AppModel {
@@ -116,22 +155,22 @@ impl cosmic::Application for AppModel {
 
     fn init(core: cosmic::Core, _flags: Self::Flags) -> (Self, Task<Self::Message>) {
         // Load persisted config.
-        let (config, config_context) =
-            match cosmic_config::Config::new(Self::APP_ID, Config::VERSION) {
-                Ok(ctx) => match Config::get_entry(&ctx) {
-                    Ok(cfg) => (cfg, Some(ctx)),
-                    Err((errs, cfg)) => {
-                        for err in errs {
-                            tracing::error!("Failed to load config entry: {}", err);
-                        }
-                        (cfg, Some(ctx))
+        let (config, config_path) = match cosmic_config::Config::new(Self::APP_ID, Config::VERSION)
+        {
+            Ok(ctx) => match Config::get_entry(&ctx) {
+                Ok(cfg) => (cfg, Some(ctx)),
+                Err((errs, cfg)) => {
+                    for err in errs {
+                        tracing::error!("Failed to load config entry: {}", err);
                     }
-                },
-                Err(e) => {
-                    tracing::error!("Failed to create cosmic config: {:?}", e);
-                    (Config::default(), None)
+                    (cfg, Some(ctx))
                 }
-            };
+            },
+            Err(e) => {
+                tracing::error!("Failed to create cosmic config: {:?}", e);
+                (Config::default(), None)
+            }
+        };
 
         let settings = WaterBreakSettings {
             work_minutes: config.work_minutes,
@@ -148,8 +187,13 @@ impl cosmic::Application for AppModel {
             todos: TodoList::new(config.todos.into_iter().map(Todo::from).collect()),
             pending_delete: None,
             show_settings: false,
-            config_context,
+            config_path,
             drag: DragState::Idle,
+            active_date_picker: ActiveDatePicker::None,
+            calendar_model: cosmic::widget::calendar::CalendarModel {
+                selected: CALENDAR_EMPTY,
+                visible: jiff::Zoned::now().date(),
+            },
         };
 
         let mut tasks = vec![];
@@ -163,7 +207,7 @@ impl cosmic::Application for AppModel {
                         .context("Failed to create iced window icon")
                     {
                         Ok(icon) => {
-                            tasks.push(cosmic::iced::window::change_icon(main_window_id, icon));
+                            tasks.push(cosmic::iced::window::set_icon(main_window_id, icon));
                         }
                         Err(e) => tracing::warn!("{:?}", e),
                     }
@@ -176,41 +220,71 @@ impl cosmic::Application for AppModel {
     }
 
     fn view(&self) -> Element<'_, Self::Message> {
-        // Todo list
-        let mut todo_col = widget::column::with_capacity(self.todos.len() + 1).spacing(8);
-        for todo in self.todos.iter() {
-            todo_col = todo_col.push(view_task(todo, self.drag));
-        }
-        if self.drag != DragState::Idle {
-            todo_col = todo_col.push(
-                widget::mouse_area(widget::container(widget::Space::new(
-                    cosmic::iced::Length::Fill,
-                    40.0,
-                )))
-                .on_enter(Message::DragToEnd)
-                .on_release(Message::DragEnd),
-            );
-        }
-        todo_col = todo_col.push(widget::button::text("+ New Task").on_press(Message::AddTodo));
+        let mut main_col = widget::column::with_capacity(4).spacing(10);
 
-        // Main layout
-        let mut main_col = widget::column::with_capacity(4).spacing(12);
+        // Timer
         main_col = main_col.push(self.view_timer());
+
+        // Settings
+        let settings_icon = if self.show_settings {
+            "pan-up-symbolic"
+        } else {
+            "pan-down-symbolic"
+        };
         main_col = main_col.push(
-            widget::button::text(if self.show_settings {
-                "Hide Settings"
-            } else {
-                "Settings"
-            })
+            widget::button::custom(
+                widget::row::with_capacity(2)
+                    .spacing(8)
+                    .align_y(cosmic::iced::Alignment::Center)
+                    .push(widget::text::body("Settings"))
+                    .push(widget::icon::from_name(settings_icon)),
+            )
             .on_press(Message::ToggleSettings),
         );
         if let Some(settings) = self.view_settings() {
             main_col = main_col.push(settings);
         }
-        main_col = main_col.push(
-            widget::mouse_area(widget::scrollable(todo_col).height(cosmic::iced::Length::Fill))
-                .on_release(Message::DragEnd),
+
+        // Todo list.
+
+        // +1 is for the new task button.
+        let mut todo_col = widget::column::with_capacity(self.todos.len() + 1).spacing(8);
+        for todo in self.todos.iter() {
+            todo_col = todo_col.push(view_task(
+                todo,
+                self.drag,
+                self.active_date_picker,
+                &self.calendar_model,
+            ));
+        }
+
+        // Add space for the drag end zone.
+        todo_col = todo_col.push(
+            widget::mouse_area(widget::container(
+                widget::Space::new()
+                    .width(cosmic::iced::Length::Fill)
+                    .height(10.0),
+            ))
+            .on_enter(Message::DragToEnd)
+            .on_release(Message::DragEnd),
         );
+
+        todo_col = todo_col.push(widget::button::text("+ New Task").on_press(Message::AddTodo));
+
+        let content =
+            widget::mouse_area(widget::scrollable(todo_col).height(cosmic::iced::Length::Fill))
+                .on_release(Message::DragEnd);
+
+        // Date picker
+        let content_element: Element<'_, Message> =
+            if self.active_date_picker == ActiveDatePicker::None {
+                content.into()
+            } else {
+                widget::mouse_area(content)
+                    .on_press(Message::CloseDatePicker)
+                    .into()
+            };
+        main_col = main_col.push(content_element);
 
         widget::container(main_col)
             .padding(16)
@@ -219,7 +293,7 @@ impl cosmic::Application for AppModel {
             .into()
     }
 
-    #[allow(clippy::too_many_lines)]
+    #[expect(clippy::too_many_lines)]
     fn update(&mut self, message: Self::Message) -> Task<Self::Message> {
         match message {
             Message::TimerTick => {
@@ -230,12 +304,15 @@ impl cosmic::Application for AppModel {
                         self.switch_phase();
                     }
                 }
+                if self.todos.tick_recurrences(jiff::Timestamp::now()) {
+                    self.save_config();
+                }
             }
             Message::SkipPhase => self.switch_phase(),
             Message::TogglePause => self.paused = !self.paused,
             Message::ToggleSettings => self.show_settings = !self.show_settings,
             Message::SetWorkMinutes(val) => {
-                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
                 let mins = val as u32;
                 self.water_break_settings.work_minutes = mins;
                 if !self.on_break {
@@ -245,7 +322,7 @@ impl cosmic::Application for AppModel {
                 self.save_config();
             }
             Message::SetBreakMinutes(val) => {
-                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
                 let mins = val as u32;
                 self.water_break_settings.break_minutes = mins;
                 if self.on_break {
@@ -293,7 +370,13 @@ impl cosmic::Application for AppModel {
             Message::ToggleComplete(id) => {
                 if let Some(task) = self.todos.find_mut(id) {
                     task.complete = !task.complete;
+                    // If we just marked it complete and it has no deadline yet, initialize it.
+                    if task.complete && task.recurrence.is_some() && task.deadline.is_none() {
+                        task.apply_recurrence_to_deadline();
+                    }
+                    self.sync_calendar_to_task(id);
                 }
+                self.todos.pop_completed();
                 self.save_config();
             }
             Message::UpdateTitle(id, title) => {
@@ -321,11 +404,189 @@ impl cosmic::Application for AppModel {
                 self.save_config();
             }
             Message::CancelDelete => self.pending_delete = None,
-            Message::UpdateConfig(config) => {
-                self.water_break_settings.work_minutes = config.work_minutes;
-                self.water_break_settings.break_minutes = config.break_minutes;
-                // Note: We don't overwrite `self.todos` from the watcher anymore.
-                // Doing so destroys ephemeral UI state (e.g., cursor position, `show_notes`).
+            Message::UpdateConfig(new_cfg) => {
+                let current_mins = self.water_break_settings.work_minutes;
+                let current_break = self.water_break_settings.break_minutes;
+                if current_mins != new_cfg.work_minutes || current_break != new_cfg.break_minutes {
+                    self.water_break_settings.work_minutes = new_cfg.work_minutes;
+                    self.water_break_settings.break_minutes = new_cfg.break_minutes;
+                    if self.on_break {
+                        let phase = Phase::on_break(&self.water_break_settings);
+                        self.seconds_remaining = phase.duration.as_secs();
+                    } else {
+                        let phase = Phase::work(&self.water_break_settings);
+                        self.seconds_remaining = phase.duration.as_secs();
+                    }
+                }
+            }
+            Message::ToggleDatePicker(id) => {
+                if self.active_date_picker == ActiveDatePicker::Task(id) {
+                    self.active_date_picker = ActiveDatePicker::None;
+                } else {
+                    self.active_date_picker = ActiveDatePicker::Task(id);
+                    self.sync_calendar_to_task(id);
+                }
+            }
+            Message::CloseDatePicker => {
+                self.active_date_picker = ActiveDatePicker::None;
+            }
+            Message::SetDeadlineDate(id, date) => {
+                if let Some(task) = self.todos.find_mut(id) {
+                    let time = if let Some(ts) = task.deadline {
+                        ts.to_zoned(jiff::tz::TimeZone::system()).time()
+                    } else {
+                        jiff::civil::Time::constant(12, 0, 0, 0)
+                    };
+                    if let Ok(zdt) = date.to_zoned(jiff::tz::TimeZone::system())
+                        && let Ok(new_zdt) = zdt.with().time(time).build()
+                    {
+                        task.deadline = Some(new_zdt.timestamp());
+                        if let Some(crate::config::RecurrenceRule::Interval(span)) =
+                            task.recurrence.as_mut()
+                        {
+                            *span = rebuild_interval(
+                                task.recurrence_int_d.as_deref().unwrap_or("1"),
+                                task.recurrence_int_h.as_deref().unwrap_or("0"),
+                                task.recurrence_int_m.as_deref().unwrap_or("0"),
+                            );
+                        }
+                    }
+                }
+
+                if self.active_date_picker == ActiveDatePicker::Task(id) {
+                    self.calendar_model.selected = date;
+                    self.calendar_model.visible = date;
+                }
+                self.save_config();
+            }
+            Message::UpdateDeadlineTimeInput(id, input) => {
+                if let Some(task) = self.todos.find_mut(id) {
+                    task.deadline_time_input = Some(input);
+                }
+            }
+            Message::SetDeadlineTime(id, input) => {
+                if let Some(task) = self.todos.find_mut(id)
+                    && let Ok(time) = input.parse::<jiff::civil::Time>()
+                {
+                    if let Some(ts) = task.deadline {
+                        if let Ok(zdt) = ts
+                            .to_zoned(jiff::tz::TimeZone::system())
+                            .with()
+                            .time(time)
+                            .build()
+                        {
+                            task.deadline = Some(zdt.timestamp());
+                        }
+                    } else if let Ok(zdt) = jiff::Timestamp::now()
+                        .to_zoned(jiff::tz::TimeZone::system())
+                        .with()
+                        .time(time)
+                        .build()
+                    {
+                        task.deadline = Some(zdt.timestamp());
+                    }
+                }
+                self.save_config();
+            }
+            Message::SetRecurrenceType(id, rtype) => {
+                if let Some(task) = self.todos.find_mut(id) {
+                    task.recurrence = match rtype {
+                        RecurrenceType::None => None,
+                        RecurrenceType::Interval => {
+                            Some(crate::config::RecurrenceRule::Interval(rebuild_interval(
+                                task.recurrence_int_d.as_deref().unwrap_or("1"),
+                                task.recurrence_int_h.as_deref().unwrap_or("0"),
+                                task.recurrence_int_m.as_deref().unwrap_or("0"),
+                            )))
+                        }
+                        RecurrenceType::Weekly => Some(crate::config::RecurrenceRule::Weekly(
+                            indexmap::IndexSet::new(),
+                        )),
+                        RecurrenceType::Yearly => {
+                            let (m, d) = if let Some(ts) = task.deadline {
+                                let zdt = ts.to_zoned(jiff::tz::TimeZone::system());
+                                (zdt.month().cast_unsigned(), zdt.day().cast_unsigned())
+                            } else {
+                                (1, 1)
+                            };
+                            Some(crate::config::RecurrenceRule::Yearly { month: m, day: d })
+                        }
+                    };
+                }
+                self.apply_recurrence_and_sync_calendar(id);
+                self.save_config();
+            }
+            Message::ClearDeadline(id) => {
+                if let Some(task) = self.todos.find_mut(id) {
+                    task.deadline = None;
+                    task.recurrence = None;
+                }
+                self.sync_calendar_to_task(id);
+                self.save_config();
+            }
+            Message::UpdateRecurrenceIntervalDays(id, val) => {
+                if let Some(task) = self.todos.find_mut(id) {
+                    task.recurrence_int_d = Some(val);
+                    if let Some(crate::config::RecurrenceRule::Interval(span)) =
+                        &mut task.recurrence
+                    {
+                        *span = rebuild_interval(
+                            task.recurrence_int_d.as_deref().unwrap_or("1"),
+                            task.recurrence_int_h.as_deref().unwrap_or("0"),
+                            task.recurrence_int_m.as_deref().unwrap_or("0"),
+                        );
+                    }
+                }
+                self.apply_recurrence_and_sync_calendar(id);
+                self.save_config();
+            }
+            Message::UpdateRecurrenceIntervalHours(id, val) => {
+                if let Some(task) = self.todos.find_mut(id) {
+                    task.recurrence_int_h = Some(val);
+                    if let Some(crate::config::RecurrenceRule::Interval(span)) =
+                        &mut task.recurrence
+                    {
+                        *span = rebuild_interval(
+                            task.recurrence_int_d.as_deref().unwrap_or("1"),
+                            task.recurrence_int_h.as_deref().unwrap_or("0"),
+                            task.recurrence_int_m.as_deref().unwrap_or("0"),
+                        );
+                    }
+                }
+                self.apply_recurrence_and_sync_calendar(id);
+                self.save_config();
+            }
+            Message::UpdateRecurrenceIntervalMinutes(id, val) => {
+                if let Some(task) = self.todos.find_mut(id) {
+                    task.recurrence_int_m = Some(val);
+                    if let Some(crate::config::RecurrenceRule::Interval(span)) =
+                        &mut task.recurrence
+                    {
+                        *span = rebuild_interval(
+                            task.recurrence_int_d.as_deref().unwrap_or("1"),
+                            task.recurrence_int_h.as_deref().unwrap_or("0"),
+                            task.recurrence_int_m.as_deref().unwrap_or("0"),
+                        );
+                    }
+                }
+                self.apply_recurrence_and_sync_calendar(id);
+                self.save_config();
+            }
+            Message::ToggleWeekday(id, wd) => {
+                if let Some(task) = self.todos.find_mut(id)
+                    && let Some(crate::config::RecurrenceRule::Weekly(days)) = &mut task.recurrence
+                    && !days.insert(wd.clone())
+                {
+                    days.swap_remove(&wd);
+                }
+                self.apply_recurrence_and_sync_calendar(id);
+                self.save_config();
+            }
+            Message::CalendarPrevMonth => {
+                self.calendar_model.show_prev_month();
+            }
+            Message::CalendarNextMonth => {
+                self.calendar_model.show_next_month();
             }
         }
         Task::none()
@@ -345,14 +606,24 @@ impl cosmic::Application for AppModel {
 
     fn subscription(&self) -> Subscription<Self::Message> {
         let mut subs = vec![
-            self.core()
-                .watch_config::<Config>(Self::APP_ID)
-                .map(|update| Message::UpdateConfig(update.config)),
-        ];
+                self.core()
+                    .watch_config::<Config>(Self::APP_ID)
+                    .map(|update| Message::UpdateConfig(update.config)),
+                cosmic::iced::keyboard::listen().filter_map(|event| match event {
+                    cosmic::iced::keyboard::Event::KeyPressed {
+                        key:
+                            cosmic::iced::keyboard::Key::Named(
+                                cosmic::iced::keyboard::key::Named::Escape,
+                            ),
+                        ..
+                    } => Some(Message::CloseDatePicker),
+                    _ => None,
+                }),
+            ];
 
         if !self.paused {
             subs.push(Subscription::run(|| {
-                cosmic::iced_futures::stream::channel(1, |mut emitter| async move {
+                cosmic::iced_futures::stream::channel(1, |mut emitter: cosmic::iced::futures::channel::mpsc::Sender<Message>| async move {
                     let mut interval = tokio::time::interval(Duration::from_secs(1));
                     loop {
                         interval.tick().await;
@@ -371,13 +642,13 @@ impl cosmic::Application for AppModel {
 
 impl AppModel {
     fn save_config(&self) {
-        if let Some(ctx) = &self.config_context {
+        if let Some(config_path) = &self.config_path {
             let config = Config {
                 work_minutes: self.water_break_settings.work_minutes,
                 break_minutes: self.water_break_settings.break_minutes,
                 todos: self.todos.iter().map(TodoData::from).collect(),
             };
-            if let Err(e) = config.write_entry(ctx) {
+            if let Err(e) = config.write_entry(config_path) {
                 tracing::error!("Failed to save config: {:?}", e);
             }
         }
@@ -401,7 +672,7 @@ impl AppModel {
         let phase = Phase::new(self.on_break, &self.water_break_settings);
         let total_secs = phase.duration.as_secs();
         let elapsed = total_secs.saturating_sub(self.seconds_remaining);
-        #[allow(clippy::cast_precision_loss)]
+        #[expect(clippy::cast_precision_loss)]
         let progress = if total_secs > 0 {
             elapsed as f32 / total_secs as f32
         } else {
@@ -412,7 +683,7 @@ impl AppModel {
         let seconds = self.seconds_remaining % 60;
 
         widget::row::with_capacity(4)
-            .push(widget::progress_bar(0.0..=1.0, progress).width(cosmic::iced::Length::Fill))
+            .push(widget::progress_bar(0.0..=1.0, progress).length(cosmic::iced::Length::Fill))
             .push(widget::text::body(format!(
                 "{} — {}m {:02}s",
                 phase.name, minutes, seconds
@@ -494,7 +765,12 @@ impl AppModel {
 }
 
 /// Renders a single task row.
-fn view_task(task: &Todo, drag: DragState) -> Element<'_, Message> {
+fn view_task<'a>(
+    task: &'a Todo,
+    drag: DragState,
+    active_date_picker: ActiveDatePicker,
+    calendar_model: &'a cosmic::widget::calendar::CalendarModel,
+) -> Element<'a, Message> {
     let id = task.id;
     let active_zone = match drag {
         DragState::Over {
@@ -518,8 +794,7 @@ fn view_task(task: &Todo, drag: DragState) -> Element<'_, Message> {
         .on_release(Message::DragEnd),
     );
 
-    row = row
-        .push(widget::checkbox("", task.complete).on_toggle(move |_| Message::ToggleComplete(id)));
+    row = row.push(widget::checkbox(task.complete).on_toggle(move |_| Message::ToggleComplete(id)));
 
     row = row.push(
         widget::text_input("Task title", &task.title)
@@ -533,13 +808,25 @@ fn view_task(task: &Todo, drag: DragState) -> Element<'_, Message> {
     );
 
     row = row.push(
-        widget::button::icon(widget::icon::from_name(if task.show_notes {
-            "pan-up-symbolic"
-        } else {
-            "pan-down-symbolic"
-        }))
-        .on_press(Message::ToggleNotes(id)),
+        widget::button::icon(widget::icon::from_name("text-x-generic-symbolic"))
+            .on_press(Message::ToggleNotes(id)),
     );
+
+    if let Some(timestamp) = task.deadline {
+        let zdt = timestamp.to_zoned(jiff::tz::TimeZone::system());
+        let date_str = zdt.strftime("%b %-d, %H:%M").to_string();
+        row = row.push(widget::text::body(date_str));
+    }
+
+    let deadline_icon = if task.deadline.is_none() {
+        "appointment-new-symbolic"
+    } else {
+        "alarm-symbolic"
+    };
+
+    let deadline_btn = widget::button::icon(widget::icon::from_name(deadline_icon));
+
+    row = row.push(deadline_btn.on_press(Message::ToggleDatePicker(id)));
 
     row = row.push(
         widget::button::icon(widget::icon::from_name("edit-delete-symbolic"))
@@ -561,7 +848,7 @@ fn view_task(task: &Todo, drag: DragState) -> Element<'_, Message> {
 
     let styled_row = view_drop_feedback(task_area, active_zone);
 
-    let mut col = widget::column::with_capacity(2 + task.subtasks.len())
+    let mut col = widget::column::with_capacity(3 + task.subtasks.len())
         .spacing(4)
         .push(styled_row);
 
@@ -572,11 +859,20 @@ fn view_task(task: &Todo, drag: DragState) -> Element<'_, Message> {
         );
     }
 
+    if active_date_picker == ActiveDatePicker::Task(id) {
+        col = col.push(
+            widget::container(view_deadline_picker(task, calendar_model))
+                .width(cosmic::iced::Length::Fill)
+                .center_x(cosmic::iced::Length::Fill)
+                .padding([8, 16]),
+        );
+    }
+
     // Subtasks (indented)
     if !task.subtasks.is_empty() {
         let mut sub_col = widget::column::with_capacity(task.subtasks.len()).spacing(4);
         for sub in &task.subtasks {
-            sub_col = sub_col.push(view_task(sub, drag));
+            sub_col = sub_col.push(view_task(sub, drag, active_date_picker, calendar_model));
         }
         col = col.push(widget::container(sub_col).padding([0, 0, 0, 24]));
     }
@@ -590,15 +886,19 @@ fn view_drop_feedback<'a>(
     active_zone: Option<DropZone>,
 ) -> Element<'a, Message> {
     let accent_line = || -> Element<'_, Message> {
-        widget::container(widget::Space::new(cosmic::iced::Length::Fill, 4.0))
-            .class(cosmic::theme::Container::custom(|theme| {
-                let accent = theme.cosmic().accent_color();
-                cosmic::widget::container::Style {
-                    background: Some(cosmic::iced::Background::Color(accent.into())),
-                    ..Default::default()
-                }
-            }))
-            .into()
+        widget::container(
+            widget::Space::new()
+                .width(cosmic::iced::Length::Fill)
+                .height(4.0),
+        )
+        .class(cosmic::theme::Container::custom(|theme| {
+            let accent = theme.cosmic().accent_color();
+            cosmic::widget::container::Style {
+                background: Some(cosmic::iced::Background::Color(accent.into())),
+                ..Default::default()
+            }
+        }))
+        .into()
     };
     match active_zone {
         Some(DropZone::Above) => widget::column::with_capacity(2)
@@ -615,4 +915,244 @@ fn view_drop_feedback<'a>(
             .into(),
         None => task_area.into(),
     }
+}
+
+fn rebuild_interval(days: &str, hrs: &str, mins: &str) -> jiff::Span {
+    jiff::Span::new()
+        .days(days.parse().unwrap_or(0))
+        .hours(hrs.parse().unwrap_or(0))
+        .minutes(mins.parse().unwrap_or(0))
+}
+
+impl AppModel {
+    fn apply_recurrence_and_sync_calendar(&mut self, id: Uuid) {
+        if let Some(task) = self.todos.find_mut(id) {
+            task.apply_recurrence_to_deadline();
+            self.sync_calendar_to_task(id);
+        }
+    }
+
+    fn sync_calendar_to_task(&mut self, id: Uuid) {
+        if let Some(task) = self.todos.find(id)
+            && self.active_date_picker == ActiveDatePicker::Task(id)
+        {
+            if let Some(ts) = task.deadline {
+                let d = ts.to_zoned(jiff::tz::TimeZone::system()).date();
+                self.calendar_model.selected = d;
+                self.calendar_model.visible = d;
+            } else {
+                self.calendar_model.selected = CALENDAR_EMPTY;
+                // Keep visible where it is, or reset to now?
+                // Reset to now if it's currently showing year 1 (likely from sentinel)
+                if self.calendar_model.visible.year() == 1 {
+                    self.calendar_model.visible = jiff::Zoned::now().date();
+                }
+            }
+        }
+    }
+}
+
+fn view_cal_col<'a>(
+    task: &'a Todo,
+    calendar_model: &'a cosmic::widget::calendar::CalendarModel,
+) -> Element<'a, Message> {
+    let id = task.id;
+    let cal = widget::calendar(
+        calendar_model,
+        move |date| Message::SetDeadlineDate(id, date),
+        || Message::CalendarPrevMonth,
+        || Message::CalendarNextMonth,
+        jiff::civil::Weekday::Sunday,
+    );
+
+    let time_row = widget::row::with_capacity(3)
+        .spacing(4)
+        .align_y(cosmic::iced::Alignment::Center)
+        .push(widget::text::body("Time:"))
+        .push(
+            widget::text_input("12:00", task.deadline_time_input.as_deref().unwrap_or(""))
+                .width(80)
+                .on_input(move |s| Message::UpdateDeadlineTimeInput(id, s))
+                .on_submit(move |s| Message::SetDeadlineTime(id, s)),
+        )
+        .push(
+            widget::button::text("Set").on_press(Message::SetDeadlineTime(
+                id,
+                task.deadline_time_input
+                    .clone()
+                    .unwrap_or_else(|| "12:00".to_string()),
+            )),
+        );
+
+    widget::column::with_capacity(3)
+        .spacing(8)
+        .push(widget::text::title3("Deadline"))
+        .push(widget::container(cal).class(cosmic::theme::Container::Card))
+        .push(time_row)
+        .into()
+}
+
+fn view_interval_controls(task: &Todo) -> widget::Row<'_, Message> {
+    let id = task.id;
+    widget::row::with_capacity(7)
+        .spacing(8)
+        .align_y(cosmic::iced::Alignment::Center)
+        .push(widget::text::body("Every:"))
+        .push(
+            widget::row::with_capacity(2)
+                .spacing(4)
+                .align_y(cosmic::iced::Alignment::Center)
+                .push(
+                    widget::text_input("1", task.recurrence_int_d.as_deref().unwrap_or(""))
+                        .width(40)
+                        .on_input(move |s| Message::UpdateRecurrenceIntervalDays(id, s)),
+                )
+                .push(widget::text::body("d")),
+        )
+        .push(
+            widget::row::with_capacity(2)
+                .spacing(4)
+                .align_y(cosmic::iced::Alignment::Center)
+                .push(
+                    widget::text_input("0", task.recurrence_int_h.as_deref().unwrap_or(""))
+                        .width(40)
+                        .on_input(move |s| Message::UpdateRecurrenceIntervalHours(id, s)),
+                )
+                .push(widget::text::body("h")),
+        )
+        .push(
+            widget::row::with_capacity(2)
+                .spacing(4)
+                .align_y(cosmic::iced::Alignment::Center)
+                .push(
+                    widget::text_input("0", task.recurrence_int_m.as_deref().unwrap_or(""))
+                        .width(40)
+                        .on_input(move |s| Message::UpdateRecurrenceIntervalMinutes(id, s)),
+                )
+                .push(widget::text::body("m")),
+        )
+}
+
+fn view_weekly_controls(task: &Todo) -> widget::Row<'_, Message> {
+    let id = task.id;
+    let mut rec_controls = widget::row::with_capacity(7)
+        .spacing(8)
+        .align_y(cosmic::iced::Alignment::Center);
+
+    let mk_wd = |lbl,
+                 wd: crate::config::WeekdayConfig,
+                 days: &indexmap::IndexSet<crate::config::WeekdayConfig>| {
+        if days.contains(&wd) {
+            widget::button::suggested(lbl)
+                .on_press(Message::ToggleWeekday(id, wd))
+                .padding([4, 8])
+        } else {
+            widget::button::standard(lbl)
+                .on_press(Message::ToggleWeekday(id, wd))
+                .padding([4, 8])
+        }
+    };
+
+    if let Some(crate::config::RecurrenceRule::Weekly(days)) = &task.recurrence {
+        rec_controls = rec_controls
+            .push(mk_wd("M", crate::config::WeekdayConfig::Monday, days))
+            .push(mk_wd("T", crate::config::WeekdayConfig::Tuesday, days))
+            .push(mk_wd("W", crate::config::WeekdayConfig::Wednesday, days))
+            .push(mk_wd("Th", crate::config::WeekdayConfig::Thursday, days))
+            .push(mk_wd("F", crate::config::WeekdayConfig::Friday, days))
+            .push(mk_wd("Sa", crate::config::WeekdayConfig::Saturday, days))
+            .push(mk_wd("Su", crate::config::WeekdayConfig::Sunday, days));
+    }
+    rec_controls
+}
+
+fn view_rec_col(task: &Todo) -> Element<'_, Message> {
+    let id = task.id;
+    let recurrence_type = if let Some(rule) = &task.recurrence {
+        match rule {
+            crate::config::RecurrenceRule::Interval(_) => RecurrenceType::Interval,
+            crate::config::RecurrenceRule::Weekly(_) => RecurrenceType::Weekly,
+            crate::config::RecurrenceRule::Yearly { .. } => RecurrenceType::Yearly,
+        }
+    } else {
+        RecurrenceType::None
+    };
+
+    let mut rec_controls = widget::row::with_capacity(7)
+        .spacing(8)
+        .align_y(cosmic::iced::Alignment::Center);
+
+    match recurrence_type {
+        RecurrenceType::Interval => {
+            rec_controls = view_interval_controls(task);
+        }
+        RecurrenceType::Weekly => {
+            rec_controls = view_weekly_controls(task);
+        }
+        RecurrenceType::Yearly => {
+            rec_controls = rec_controls.push(widget::text::body(
+                "Recurs yearly on the set deadline date.",
+            ));
+        }
+        RecurrenceType::None => {}
+    }
+
+    widget::column::with_capacity(4)
+        .spacing(8)
+        .push(widget::text::title3("Recurrence"))
+        .push(cosmic::widget::dropdown(
+            vec!["None", "Interval", "Weekly", "Yearly"],
+            Some(match recurrence_type {
+                RecurrenceType::None => 0,
+                RecurrenceType::Interval => 1,
+                RecurrenceType::Weekly => 2,
+                RecurrenceType::Yearly => 3,
+            }),
+            move |idx| {
+                Message::SetRecurrenceType(
+                    id,
+                    match idx {
+                        0 => RecurrenceType::None,
+                        1 => RecurrenceType::Interval,
+                        2 => RecurrenceType::Weekly,
+                        _ => RecurrenceType::Yearly,
+                    },
+                )
+            },
+        ))
+        .push(rec_controls.wrap())
+        .width(280)
+        .into()
+}
+
+fn view_deadline_picker<'a>(
+    task: &'a Todo,
+    calendar_model: &'a cosmic::widget::calendar::CalendarModel,
+) -> Element<'a, Message> {
+    let id = task.id;
+    let layout = widget::row::with_capacity(2)
+        .spacing(16)
+        .push(view_cal_col(task, calendar_model))
+        .push(view_rec_col(task))
+        .wrap();
+
+    let final_layout = widget::column::with_capacity(2)
+        .spacing(8)
+        .push(layout)
+        .push(
+            widget::row::with_capacity(3)
+                .push(widget::Space::new().width(cosmic::iced::Length::Fill))
+                .push(widget::button::standard("Clear").on_press(Message::ClearDeadline(id)))
+                .push(
+                    widget::button::standard("Close")
+                        .on_press(Message::CloseDatePicker)
+                        .class(cosmic::theme::Button::Suggested),
+                )
+                .spacing(8),
+        );
+
+    widget::container(final_layout)
+        .class(cosmic::theme::Container::Card)
+        .padding(12)
+        .into()
 }
