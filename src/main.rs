@@ -60,9 +60,9 @@ struct AppModel {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ActiveDatePicker {
-    /// Hide calandar.
+    /// Hide calendar.
     None,
-    /// Show calandar to pick a deadline for this task.
+    /// Show calendar to pick a deadline for this task.
     Task(Uuid),
 }
 
