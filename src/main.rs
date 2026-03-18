@@ -663,7 +663,11 @@ impl AppModel {
 
     /// Returns a [`Task`] that focuses a todo's text input by its ID.
     fn focus_todo(id: Uuid) -> Task<Message> {
-        cosmic::widget::text_input::focus(cosmic::widget::Id::new(id.to_string()))
+        let widget_id = cosmic::widget::Id::new(id.to_string());
+        Task::batch(vec![
+            cosmic::widget::text_input::focus(widget_id.clone()),
+            cosmic::widget::text_input::select_all(widget_id),
+        ])
     }
 
     /// Switches between work and break phases.
