@@ -102,6 +102,7 @@ enum Message {
     ConfirmDelete,
     CancelDelete,
     AddSubtask(Uuid),
+    ToggleCollapse(Uuid),
     /// Begin dragging a task.
     DragStart(Uuid),
     /// Drag moved within a task row — update drop zone.
@@ -346,6 +347,12 @@ impl cosmic::Application for AppModel {
                 }
                 self.save_config();
                 return Self::focus_todo(id);
+            }
+            Message::ToggleCollapse(id) => {
+                if let Some(task) = self.todos.find_mut(id) {
+                    task.collapsed = !task.collapsed;
+                }
+                self.save_config();
             }
             Message::DragStart(id) => self.drag = DragState::Dragging { source: id },
             Message::DragMove(id, zone) => {
@@ -781,18 +788,40 @@ fn view_task<'a>(
         _ => None,
     };
 
-    let mut row = widget::row::with_capacity(8)
+    let mut row = widget::row::with_capacity(5)
         .spacing(8)
         .align_y(cosmic::iced::Alignment::Center);
 
+    let mut left_handles = widget::row::with_capacity(2)
+        .spacing(2)
+        .align_y(cosmic::iced::Alignment::Center);
+
+    // Toggle collapse button or spacer
+    if !task.subtasks.is_empty() {
+        let icon_name = if task.collapsed {
+            "pan-end-symbolic"
+        } else {
+            "pan-down-symbolic"
+        };
+        left_handles = left_handles.push(
+            widget::button::icon(widget::icon::from_name(icon_name))
+                .on_press(Message::ToggleCollapse(id))
+                .padding(2),
+        );
+    } else {
+        left_handles = left_handles.push(widget::Space::new().width(20));
+    }
+
     // Drag handle: press to start dragging, release to drop
-    row = row.push(
+    left_handles = left_handles.push(
         widget::mouse_area(
             widget::container(widget::icon::from_name("grip-lines-symbolic")).padding(4),
         )
         .on_press(Message::DragStart(id))
         .on_release(Message::DragEnd),
     );
+
+    row = row.push(left_handles);
 
     row = row.push(widget::checkbox(task.complete).on_toggle(move |_| Message::ToggleComplete(id)));
 
@@ -802,12 +831,16 @@ fn view_task<'a>(
             .on_input(move |s| Message::UpdateTitle(id, s)),
     );
 
-    row = row.push(
+    let mut right_buttons = widget::row::with_capacity(4)
+        .spacing(2)
+        .align_y(cosmic::iced::Alignment::Center);
+
+    right_buttons = right_buttons.push(
         widget::button::icon(widget::icon::from_name("list-add-symbolic"))
             .on_press(Message::AddSubtask(id)),
     );
 
-    row = row.push(
+    right_buttons = right_buttons.push(
         widget::button::icon(widget::icon::from_name("text-x-generic-symbolic"))
             .on_press(Message::ToggleNotes(id)),
     );
@@ -826,12 +859,14 @@ fn view_task<'a>(
 
     let deadline_btn = widget::button::icon(widget::icon::from_name(deadline_icon));
 
-    row = row.push(deadline_btn.on_press(Message::ToggleDatePicker(id)));
+    right_buttons = right_buttons.push(deadline_btn.on_press(Message::ToggleDatePicker(id)));
 
-    row = row.push(
+    right_buttons = right_buttons.push(
         widget::button::icon(widget::icon::from_name("edit-delete-symbolic"))
             .on_press(Message::RequestDelete(id)),
     );
+
+    row = row.push(right_buttons);
 
     let task_area = widget::mouse_area(row)
         .on_move(move |point| {
@@ -869,7 +904,7 @@ fn view_task<'a>(
     }
 
     // Subtasks (indented)
-    if !task.subtasks.is_empty() {
+    if !task.subtasks.is_empty() && !task.collapsed {
         let mut sub_col = widget::column::with_capacity(task.subtasks.len()).spacing(4);
         for sub in &task.subtasks {
             sub_col = sub_col.push(view_task(sub, drag, active_date_picker, calendar_model));

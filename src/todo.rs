@@ -25,6 +25,7 @@ pub(crate) struct Todo {
     pub(crate) recurrence_int_h: Option<String>,
     pub(crate) recurrence_int_m: Option<String>,
     pub(crate) deadline_time_input: Option<String>,
+    pub(crate) collapsed: bool,
 }
 
 impl Todo {
@@ -96,6 +97,7 @@ impl Clone for Todo {
             recurrence_int_h: self.recurrence_int_h.clone(),
             recurrence_int_m: self.recurrence_int_m.clone(),
             deadline_time_input: self.deadline_time_input.clone(),
+            collapsed: self.collapsed,
         }
     }
 }
@@ -115,6 +117,7 @@ impl Default for Todo {
             recurrence_int_h: None,
             recurrence_int_m: None,
             deadline_time_input: None,
+            collapsed: false,
         }
     }
 }
@@ -152,6 +155,7 @@ impl From<TodoData> for Todo {
             } else {
                 None
             },
+            collapsed: data.collapsed,
         }
     }
 }
@@ -166,6 +170,7 @@ impl From<&Todo> for TodoData {
             complete: todo.complete,
             deadline: todo.deadline,
             recurrence: todo.recurrence.clone(),
+            collapsed: todo.collapsed,
         }
     }
 }

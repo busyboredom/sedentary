@@ -32,6 +32,8 @@ pub(crate) struct TodoData {
     pub(crate) deadline: Option<jiff::Timestamp>,
     #[serde(default)]
     pub(crate) recurrence: Option<RecurrenceRule>,
+    #[serde(default)]
+    pub(crate) collapsed: bool,
 }
 
 /// Needed because `jiff::civil::Weekday` does not implement `serde`.
@@ -211,6 +213,7 @@ mod tests {
             complete: false,
             deadline: None,
             recurrence: None,
+            collapsed: false,
         };
         let parent = TodoData {
             id: Uuid::new_v4(),
@@ -220,6 +223,7 @@ mod tests {
             complete: false,
             deadline: None,
             recurrence: None,
+            collapsed: false,
         };
         let json = serde_json::to_string(&parent).unwrap();
         let restored: TodoData = serde_json::from_str(&json).unwrap();
