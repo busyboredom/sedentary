@@ -308,6 +308,24 @@ impl TodoList {
         pop_in(&mut self.items);
     }
 
+    /// Returns a reference to the incomplete task with the earliest (or most
+    /// overdue) deadline, searching recursively through subtasks.
+    pub(crate) fn next_due(&self) -> Option<&Todo> {
+        fn earliest<'a>(todos: &'a [Todo], best: Option<&'a Todo>) -> Option<&'a Todo> {
+            let mut best = best;
+            for todo in todos {
+                if !todo.complete
+                    && let Some(dl) = todo.deadline
+                        && best.is_none_or(|b| dl < b.deadline.unwrap()) {
+                            best = Some(todo);
+                        }
+                best = earliest(&todo.subtasks, best);
+            }
+            best
+        }
+        earliest(&self.items, None)
+    }
+
     /// Nest a Todo as a subtask of a target Todo.
     pub(crate) fn nest_inside(&mut self, target_id: Uuid, new_todo: Todo) -> bool {
         if let Some(target) = self.find_mut(target_id) {

@@ -288,9 +288,6 @@ dependencies = [
  "serde_repr",
  "tokio",
  "url",
- "wayland-backend",
- "wayland-client",
- "wayland-protocols",
  "zbus",
 ]
 
@@ -589,10 +586,11 @@ dependencies = [
 
 [[package]]
 name = "borsh"
-version = "1.6.0"
+version = "1.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d1da5ab77c1437701eeff7c88d968729e7766172279eab0676857b3d63af7a6f"
+checksum = "cfd1e3f8955a5d7de9fab72fc8373fade9fb8a703968cb200ae3dc6cf08e185a"
 dependencies = [
+ "bytes",
  "cfg_aliases",
 ]
 
@@ -936,7 +934,7 @@ dependencies = [
 [[package]]
 name = "cosmic-config"
 version = "1.0.0"
-source = "git+https://github.com/pop-os/libcosmic.git#c7ac9cfd31c8c5095d46f9322adc3e7c3208c94e"
+source = "git+https://github.com/pop-os/libcosmic.git#3da55e807440a99f6ed62edc2e7a84ca4be9b844"
 dependencies = [
  "atomicwrites",
  "cosmic-config-derive",
@@ -957,7 +955,7 @@ dependencies = [
 [[package]]
 name = "cosmic-config-derive"
 version = "1.0.0"
-source = "git+https://github.com/pop-os/libcosmic.git#c7ac9cfd31c8c5095d46f9322adc3e7c3208c94e"
+source = "git+https://github.com/pop-os/libcosmic.git#3da55e807440a99f6ed62edc2e7a84ca4be9b844"
 dependencies = [
  "quote",
  "syn",
@@ -971,7 +969,7 @@ dependencies = [
  "bstr",
  "btoi",
  "memchr",
- "memmap2 0.9.10",
+ "memmap2",
  "thiserror 2.0.18",
  "tracing",
  "xdg",
@@ -1025,7 +1023,7 @@ dependencies = [
 [[package]]
 name = "cosmic-theme"
 version = "1.0.0"
-source = "git+https://github.com/pop-os/libcosmic.git#c7ac9cfd31c8c5095d46f9322adc3e7c3208c94e"
+source = "git+https://github.com/pop-os/libcosmic.git#3da55e807440a99f6ed62edc2e7a84ca4be9b844"
 dependencies = [
  "almost",
  "configparser",
@@ -1434,9 +1432,9 @@ dependencies = [
 
 [[package]]
 name = "euclid"
-version = "0.22.13"
+version = "0.22.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "df61bf483e837f88d5c2291dcf55c67be7e676b3a51acc48db3a7b163b91ed63"
+checksum = "f1a05365e3b1c6d1650318537c7460c6923f1abdd272ad6842baa2b509957a06"
 dependencies = [
  "num-traits",
 ]
@@ -1633,7 +1631,7 @@ checksum = "457e789b3d1202543297a350643cf459f836cade38934e7a4cf6a39e7cde2905"
 dependencies = [
  "fontconfig-parser",
  "log",
- "memmap2 0.9.10",
+ "memmap2",
  "slotmap",
  "tinyvec",
  "ttf-parser",
@@ -2100,7 +2098,7 @@ dependencies = [
 [[package]]
 name = "iced"
 version = "0.14.0"
-source = "git+https://github.com/pop-os/libcosmic.git#c7ac9cfd31c8c5095d46f9322adc3e7c3208c94e"
+source = "git+https://github.com/pop-os/libcosmic.git#3da55e807440a99f6ed62edc2e7a84ca4be9b844"
 dependencies = [
  "dnd",
  "iced_accessibility",
@@ -2121,7 +2119,7 @@ dependencies = [
 [[package]]
 name = "iced_accessibility"
 version = "0.1.0"
-source = "git+https://github.com/pop-os/libcosmic.git#c7ac9cfd31c8c5095d46f9322adc3e7c3208c94e"
+source = "git+https://github.com/pop-os/libcosmic.git#3da55e807440a99f6ed62edc2e7a84ca4be9b844"
 dependencies = [
  "accesskit",
  "accesskit_winit",
@@ -2130,11 +2128,10 @@ dependencies = [
 [[package]]
 name = "iced_core"
 version = "0.14.0"
-source = "git+https://github.com/pop-os/libcosmic.git#c7ac9cfd31c8c5095d46f9322adc3e7c3208c94e"
+source = "git+https://github.com/pop-os/libcosmic.git#3da55e807440a99f6ed62edc2e7a84ca4be9b844"
 dependencies = [
  "bitflags 2.11.0",
  "bytes",
- "cosmic-client-toolkit",
  "dnd",
  "glam",
  "lilt",
@@ -2154,7 +2151,7 @@ dependencies = [
 [[package]]
 name = "iced_debug"
 version = "0.14.0"
-source = "git+https://github.com/pop-os/libcosmic.git#c7ac9cfd31c8c5095d46f9322adc3e7c3208c94e"
+source = "git+https://github.com/pop-os/libcosmic.git#3da55e807440a99f6ed62edc2e7a84ca4be9b844"
 dependencies = [
  "iced_core",
  "iced_futures",
@@ -2164,7 +2161,7 @@ dependencies = [
 [[package]]
 name = "iced_futures"
 version = "0.14.0"
-source = "git+https://github.com/pop-os/libcosmic.git#c7ac9cfd31c8c5095d46f9322adc3e7c3208c94e"
+source = "git+https://github.com/pop-os/libcosmic.git#3da55e807440a99f6ed62edc2e7a84ca4be9b844"
 dependencies = [
  "futures",
  "iced_core",
@@ -2178,7 +2175,7 @@ dependencies = [
 [[package]]
 name = "iced_graphics"
 version = "0.14.0"
-source = "git+https://github.com/pop-os/libcosmic.git#c7ac9cfd31c8c5095d46f9322adc3e7c3208c94e"
+source = "git+https://github.com/pop-os/libcosmic.git#3da55e807440a99f6ed62edc2e7a84ca4be9b844"
 dependencies = [
  "bitflags 2.11.0",
  "bytemuck",
@@ -2199,7 +2196,7 @@ dependencies = [
 [[package]]
 name = "iced_program"
 version = "0.14.0"
-source = "git+https://github.com/pop-os/libcosmic.git#c7ac9cfd31c8c5095d46f9322adc3e7c3208c94e"
+source = "git+https://github.com/pop-os/libcosmic.git#3da55e807440a99f6ed62edc2e7a84ca4be9b844"
 dependencies = [
  "iced_graphics",
  "iced_runtime",
@@ -2208,7 +2205,7 @@ dependencies = [
 [[package]]
 name = "iced_renderer"
 version = "0.14.0"
-source = "git+https://github.com/pop-os/libcosmic.git#c7ac9cfd31c8c5095d46f9322adc3e7c3208c94e"
+source = "git+https://github.com/pop-os/libcosmic.git#3da55e807440a99f6ed62edc2e7a84ca4be9b844"
 dependencies = [
  "iced_graphics",
  "iced_tiny_skia",
@@ -2220,10 +2217,9 @@ dependencies = [
 [[package]]
 name = "iced_runtime"
 version = "0.14.0"
-source = "git+https://github.com/pop-os/libcosmic.git#c7ac9cfd31c8c5095d46f9322adc3e7c3208c94e"
+source = "git+https://github.com/pop-os/libcosmic.git#3da55e807440a99f6ed62edc2e7a84ca4be9b844"
 dependencies = [
  "bytes",
- "cosmic-client-toolkit",
  "dnd",
  "iced_core",
  "iced_futures",
@@ -2235,7 +2231,7 @@ dependencies = [
 [[package]]
 name = "iced_tiny_skia"
 version = "0.14.0"
-source = "git+https://github.com/pop-os/libcosmic.git#c7ac9cfd31c8c5095d46f9322adc3e7c3208c94e"
+source = "git+https://github.com/pop-os/libcosmic.git#3da55e807440a99f6ed62edc2e7a84ca4be9b844"
 dependencies = [
  "bytemuck",
  "cosmic-text",
@@ -2252,7 +2248,7 @@ dependencies = [
 [[package]]
 name = "iced_wgpu"
 version = "0.14.0"
-source = "git+https://github.com/pop-os/libcosmic.git#c7ac9cfd31c8c5095d46f9322adc3e7c3208c94e"
+source = "git+https://github.com/pop-os/libcosmic.git#3da55e807440a99f6ed62edc2e7a84ca4be9b844"
 dependencies = [
  "as-raw-xcb-connection",
  "bitflags 2.11.0",
@@ -2283,9 +2279,8 @@ dependencies = [
 [[package]]
 name = "iced_widget"
 version = "0.14.2"
-source = "git+https://github.com/pop-os/libcosmic.git#c7ac9cfd31c8c5095d46f9322adc3e7c3208c94e"
+source = "git+https://github.com/pop-os/libcosmic.git#3da55e807440a99f6ed62edc2e7a84ca4be9b844"
 dependencies = [
- "cosmic-client-toolkit",
  "dnd",
  "iced_renderer",
  "iced_runtime",
@@ -2301,9 +2296,8 @@ dependencies = [
 [[package]]
 name = "iced_winit"
 version = "0.14.0"
-source = "git+https://github.com/pop-os/libcosmic.git#c7ac9cfd31c8c5095d46f9322adc3e7c3208c94e"
+source = "git+https://github.com/pop-os/libcosmic.git#3da55e807440a99f6ed62edc2e7a84ca4be9b844"
 dependencies = [
- "cosmic-client-toolkit",
  "cursor-icon",
  "dnd",
  "iced_debug",
@@ -2312,22 +2306,16 @@ dependencies = [
  "iced_program",
  "iced_runtime",
  "log",
- "raw-window-handle",
  "rustc-hash 2.1.1",
  "rustix 0.38.44",
  "thiserror 2.0.18",
  "wasm-bindgen-futures",
- "wayland-backend",
  "wayland-client",
- "wayland-protocols",
  "web-sys",
  "winapi",
  "window_clipboard",
  "winit",
  "winit-core",
- "xkbcommon 0.7.0",
- "xkbcommon-dl",
- "xkeysym",
 ]
 
 [[package]]
@@ -2723,12 +2711,11 @@ checksum = "b5b646652bf6661599e1da8901b3b9522896f01e736bad5f723fe7a3a27f899d"
 [[package]]
 name = "libcosmic"
 version = "1.0.0"
-source = "git+https://github.com/pop-os/libcosmic.git#c7ac9cfd31c8c5095d46f9322adc3e7c3208c94e"
+source = "git+https://github.com/pop-os/libcosmic.git#3da55e807440a99f6ed62edc2e7a84ca4be9b844"
 dependencies = [
  "apply",
  "ashpd 0.12.3",
  "auto_enums",
- "cosmic-client-toolkit",
  "cosmic-config",
  "cosmic-freedesktop-icons",
  "cosmic-settings-daemon",
@@ -2753,7 +2740,6 @@ dependencies = [
  "log",
  "palette",
  "phf 0.13.1",
- "raw-window-handle",
  "rfd",
  "rust-embed",
  "serde",
@@ -2945,15 +2931,6 @@ name = "memchr"
 version = "2.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8ca58f447f06ed17d5fc4043ce1b10dd205e060fb3ce5b979b8ed8e59ff3f79"
-
-[[package]]
-name = "memmap2"
-version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "43a5a03cefb0d953ec0be133036f14e109412fa594edc2f77227249db66cc3ed"
-dependencies = [
- "libc",
-]
 
 [[package]]
 name = "memmap2"
@@ -4330,7 +4307,7 @@ checksum = "1dd3accc0f3f4bbaf2c9e1957a030dc582028130c67660d44c0a0345a22ca69b"
 dependencies = [
  "ab_glyph",
  "log",
- "memmap2 0.9.10",
+ "memmap2",
  "smithay-client-toolkit",
  "tiny-skia",
 ]
@@ -4531,7 +4508,7 @@ dependencies = [
  "cursor-icon",
  "libc",
  "log",
- "memmap2 0.9.10",
+ "memmap2",
  "pkg-config",
  "rustix 1.1.4",
  "thiserror 2.0.18",
@@ -4544,7 +4521,7 @@ dependencies = [
  "wayland-protocols-misc",
  "wayland-protocols-wlr",
  "wayland-scanner",
- "xkbcommon 0.8.0",
+ "xkbcommon",
  "xkeysym",
 ]
 
@@ -4594,7 +4571,7 @@ dependencies = [
  "foreign-types",
  "js-sys",
  "log",
- "memmap2 0.9.10",
+ "memmap2",
  "objc",
  "raw-window-handle",
  "redox_syscall 0.5.18",
@@ -6491,7 +6468,7 @@ name = "winit-common"
 version = "0.31.0-beta.2"
 source = "git+https://github.com/pop-os/winit.git?tag=cosmic-0.14#a610ac9c7a72b39ff102ed4d946291618dc725b6"
 dependencies = [
- "memmap2 0.9.10",
+ "memmap2",
  "objc2 0.6.4",
  "objc2-core-foundation",
  "smol_str",
@@ -6562,7 +6539,7 @@ dependencies = [
  "cursor-icon",
  "dpi",
  "libc",
- "memmap2 0.9.10",
+ "memmap2",
  "raw-window-handle",
  "rustix 1.1.4",
  "sctk-adwaita",
@@ -6797,23 +6774,12 @@ checksum = "2fb433233f2df9344722454bc7e96465c9d03bff9d77c248f9e7523fe79585b5"
 
 [[package]]
 name = "xkbcommon"
-version = "0.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "13867d259930edc7091a6c41b4ce6eee464328c6ff9659b7e4c668ca20d4c91e"
-dependencies = [
- "libc",
- "memmap2 0.8.0",
- "xkeysym",
-]
-
-[[package]]
-name = "xkbcommon"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8d66ca9352cbd4eecbbc40871d8a11b4ac8107cfc528a6e14d7c19c69d0e1ac9"
 dependencies = [
  "libc",
- "memmap2 0.9.10",
+ "memmap2",
  "xkeysym",
 ]
 

@@ -225,8 +225,21 @@ impl cosmic::Application for AppModel {
     fn view(&self) -> Element<'_, Self::Message> {
         let mut main_col = widget::column::with_capacity(4).spacing(10);
 
-        // Timer
-        main_col = main_col.push(self.view_timer());
+        // Timer + Next Due card (wraps when window is narrow)
+        let mut header = widget::row::with_capacity(2)
+            .spacing(12)
+            .align_y(cosmic::iced::Alignment::Center);
+
+        header = header.push(
+            widget::container(self.view_timer())
+                .width(cosmic::iced::Length::Fill),
+        );
+
+        if let Some(card) = self.view_next_due() {
+            header = header.push(widget::container(card).width(240));
+        }
+
+        main_col = main_col.push(header);
 
         // Settings
         let settings_icon = if self.show_settings {
@@ -693,7 +706,7 @@ impl AppModel {
         self.seconds_remaining = phase.duration.as_secs();
     }
 
-    /// Renders the timer row (progress bar, time display, pause/skip buttons).
+    /// Renders the timer row (progress bar, time display, pause/skip buttons, and Next Due card).
     fn view_timer(&self) -> Element<'_, Message> {
         let phase = Phase::new(self.on_break, &self.water_break_settings);
         let total_secs = phase.duration.as_secs();
@@ -708,8 +721,12 @@ impl AppModel {
         let minutes = self.seconds_remaining / 60;
         let seconds = self.seconds_remaining % 60;
 
-        widget::row::with_capacity(4)
-            .push(widget::progress_bar(0.0..=1.0, progress).length(cosmic::iced::Length::Fill))
+        let row = widget::row::with_capacity(4)
+            .push(
+                widget::container(
+                    widget::progress_bar(0.0..=1.0, progress).length(cosmic::iced::Length::Fill),
+                )
+                .width(cosmic::iced::Length::Fill)            )
             .push(widget::text::body(format!(
                 "{} — {}m {:02}s",
                 phase.name, minutes, seconds
@@ -720,8 +737,64 @@ impl AppModel {
             )
             .push(widget::button::text(format!("Skip {}", phase.name)).on_press(Message::SkipPhase))
             .spacing(8)
-            .align_y(cosmic::iced::Alignment::Center)
-            .into()
+            .align_y(cosmic::iced::Alignment::Center);
+
+        row.into()
+    }
+
+    /// Renders the "Next Due" card showing the most urgent incomplete task with a deadline.
+    fn view_next_due(&self) -> Option<Element<'_, Message>> {
+        let task = self.todos.next_due()?;
+        let now = jiff::Timestamp::now();
+        let deadline = task.deadline.unwrap(); // guaranteed by next_due
+
+        let secs_abs = deadline.duration_since(now).unsigned_abs().as_secs();
+        let is_overdue = deadline < now;
+        let countdown = format_countdown(secs_abs, is_overdue);
+
+        let countdown_text = if is_overdue {
+            widget::text::body(format!("\u{26a0} {countdown}"))
+                .class(cosmic::theme::Text::Color(
+                    cosmic::iced::Color::from_rgb(0.85, 0.3, 0.2),
+                ))
+        } else {
+            widget::text::body(countdown)
+        };
+
+        let inner = widget::container(
+            widget::column::with_capacity(2)
+                .spacing(2)
+                .push(
+                    widget::text::body(if task.title.chars().count() > 25 {
+                        format!("{}...", task.title.chars().take(24).collect::<String>())
+                    } else {
+                        task.title.clone()
+                    })
+                        .width(cosmic::iced::Length::Fill)
+                        .align_x(cosmic::iced::alignment::Horizontal::Left),
+                )
+                .push(
+                    countdown_text
+                        .width(cosmic::iced::Length::Fill)
+                        .align_x(cosmic::iced::alignment::Horizontal::Left),
+                ),
+        )
+        .class(cosmic::theme::Container::Primary)
+        .width(cosmic::iced::Length::Fill)
+        .padding([4, 8]);
+
+        Some(
+            widget::container(
+                widget::column::with_capacity(2)
+                    .spacing(4)
+                    .push(widget::text::caption("Next Due:"))
+                    .push(inner),
+            )
+            .class(cosmic::theme::Container::Card)
+            .padding([6, 12])
+            .width(240)
+            .into(),
+        )
     }
 
     /// Renders the settings panel, if visible.
@@ -978,6 +1051,34 @@ fn rebuild_interval(days: &str, hrs: &str, mins: &str) -> jiff::Span {
         .days(days.parse().unwrap_or(0))
         .hours(hrs.parse().unwrap_or(0))
         .minutes(mins.parse().unwrap_or(0))
+}
+
+/// Formats an absolute duration as a human-readable countdown string.
+/// Granularity scales with magnitude: `5d`, `1d 3h`, `2h 15m`, `4m 30s`, `45s`.
+/// When `overdue` is true, appends `" overdue"`.
+fn format_countdown(secs_abs: u64, overdue: bool) -> String {
+    let days  = secs_abs / 86_400;
+    let hours = (secs_abs % 86_400) / 3_600;
+    let mins  = (secs_abs % 3_600) / 60;
+    let secs  = secs_abs % 60;
+
+    let s = if secs_abs >= 2 * 86_400 {
+        format!("{days}d")
+    } else if secs_abs >= 86_400 {
+        format!("{days}d {hours}h")
+    } else if secs_abs >= 3_600 {
+        format!("{hours}h {mins}m")
+    } else if secs_abs >= 60 {
+        format!("{mins}m {secs}s")
+    } else {
+        format!("{secs}s")
+    };
+
+    if overdue {
+        format!("{s} overdue")
+    } else {
+        s
+    }
 }
 
 impl AppModel {
