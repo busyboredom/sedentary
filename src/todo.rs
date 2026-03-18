@@ -182,7 +182,9 @@ pub(crate) struct TodoList {
 
 impl TodoList {
     pub(crate) fn new(items: Vec<Todo>) -> Self {
-        Self { items }
+        let mut list = Self { items };
+        list.sort();
+        list
     }
 
     /// Returns a slice of the top-level items.
@@ -287,6 +289,23 @@ impl TodoList {
         self.insert_relative(target_id, new_todo, 1)
     }
 
+    /// Sorts all tasks (and subtasks) by deadline. Tasks with deadlines come first,
+    /// ordered earliest to latest. Tasks without deadlines are sorted to the end.
+    pub(crate) fn sort_by_deadline(&mut self) {
+        fn sort_in(todos: &mut [Todo]) {
+            for todo in todos.iter_mut() {
+                sort_in(&mut todo.subtasks);
+            }
+            todos.sort_by(|a, b| match (a.deadline, b.deadline) {
+                (Some(d1), Some(d2)) => d1.cmp(&d2),
+                (Some(_), None) => std::cmp::Ordering::Less,
+                (None, Some(_)) => std::cmp::Ordering::Greater,
+                (None, None) => std::cmp::Ordering::Equal,
+            });
+        }
+        sort_in(&mut self.items);
+    }
+
     /// Recursively move completed tasks to the bottom of their respective arrays.
     pub(crate) fn pop_completed(&mut self) {
         fn pop_in(todos: &mut Vec<Todo>) {
@@ -308,6 +327,12 @@ impl TodoList {
         pop_in(&mut self.items);
     }
 
+    /// Fully sort the list by deadline, and then ensure completed tasks are at the bottom.
+    pub(crate) fn sort(&mut self) {
+        self.sort_by_deadline();
+        self.pop_completed();
+    }
+
     /// Returns a reference to the incomplete task with the earliest (or most
     /// overdue) deadline, searching recursively through subtasks.
     pub(crate) fn next_due(&self) -> Option<&Todo> {
@@ -316,9 +341,10 @@ impl TodoList {
             for todo in todos {
                 if !todo.complete
                     && let Some(dl) = todo.deadline
-                        && best.is_none_or(|b| dl < b.deadline.unwrap()) {
-                            best = Some(todo);
-                        }
+                    && best.is_none_or(|b| dl < b.deadline.unwrap())
+                {
+                    best = Some(todo);
+                }
                 best = earliest(&todo.subtasks, best);
             }
             best
@@ -355,9 +381,11 @@ impl TodoList {
                             break;
                         }
                         let total_diff = next_deadline.duration_since(deadline);
-                        let midpoint = deadline.checked_add(total_diff / 2).unwrap_or(deadline);
+                        let trigger_point = deadline
+                            .checked_add((total_diff / 4) * 3)
+                            .unwrap_or(deadline);
 
-                        if now >= midpoint {
+                        if now >= trigger_point {
                             deadline = next_deadline;
                             todo.deadline = Some(deadline);
                             advanced = true;
@@ -580,5 +608,71 @@ mod tests {
 
         // Check that deadline is now reset to roughly now + 1 hour (much sooner than tomorrow)
         assert!(todo.deadline.unwrap() < tomorrow);
+    }
+
+    #[test]
+    fn sort_by_deadline_orders_correctly() {
+        let now = jiff::Timestamp::now();
+        let tomorrow = now.checked_add(jiff::Span::new().hours(24)).unwrap();
+        let yesterday = now.checked_sub(jiff::Span::new().hours(24)).unwrap();
+
+        let mut a = make_todo(Uuid::new_v4(), "A");
+        a.deadline = None;
+
+        let mut b = make_todo(Uuid::new_v4(), "B");
+        b.deadline = Some(now);
+
+        let mut c = make_todo(Uuid::new_v4(), "C");
+        c.deadline = Some(tomorrow);
+
+        let mut d = make_todo(Uuid::new_v4(), "D");
+        d.deadline = Some(yesterday);
+
+        let list = TodoList::new(vec![a, b, c, d]);
+        // list automatically sorts on init now
+
+        assert_eq!(list.items()[0].title, "D"); // Yesterday
+        assert_eq!(list.items()[1].title, "B"); // Now
+        assert_eq!(list.items()[2].title, "C"); // Tomorrow
+        assert_eq!(list.items()[3].title, "A"); // None
+    }
+
+    #[test]
+    fn tick_recurrences_3_4_point() {
+        let mut todo = make_todo(Uuid::new_v4(), "Recurring 3/4");
+        todo.complete = true;
+
+        let now = jiff::Timestamp::now();
+        let past_deadline = now.checked_sub(jiff::Span::new().hours(100)).unwrap();
+        todo.deadline = Some(past_deadline);
+        // Interval is 100 hours. The next deadline is `now`.
+        // The previous deadline was 100 hours ago.
+        // 3/4 of 100 hours is 75 hours.
+        // So it should trigger if `now` >= `past_deadline + 75 hours`.
+        // Since `now` is exactly `past_deadline + 100 hours`, it should trigger.
+        todo.recurrence = Some(crate::config::RecurrenceRule::Interval(
+            jiff::Span::new().hours(100),
+        ));
+
+        let mut list = TodoList::new(vec![todo]);
+        let changed = list.tick_recurrences(now);
+        assert!(changed);
+        assert!(!list.items()[0].complete);
+
+        // Test just before 3/4 point
+        let mut todo2 = make_todo(Uuid::new_v4(), "Recurring Not Yet");
+        todo2.complete = true;
+        // Deadline was 100 hours ago relative to the target 'next' deadline.
+        // Let's set it to exactly 74 hours past the deadline.
+        let deadline2 = now.checked_sub(jiff::Span::new().hours(74)).unwrap();
+        todo2.deadline = Some(deadline2);
+        todo2.recurrence = Some(crate::config::RecurrenceRule::Interval(
+            jiff::Span::new().hours(100),
+        ));
+
+        let mut list2 = TodoList::new(vec![todo2]);
+        let changed2 = list2.tick_recurrences(now);
+        assert!(!changed2);
+        assert!(list2.items()[0].complete);
     }
 }

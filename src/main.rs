@@ -230,10 +230,8 @@ impl cosmic::Application for AppModel {
             .spacing(12)
             .align_y(cosmic::iced::Alignment::Center);
 
-        header = header.push(
-            widget::container(self.view_timer())
-                .width(cosmic::iced::Length::Fill),
-        );
+        header =
+            header.push(widget::container(self.view_timer()).width(cosmic::iced::Length::Fill));
 
         if let Some(card) = self.view_next_due() {
             header = header.push(widget::container(card).width(240));
@@ -321,6 +319,7 @@ impl cosmic::Application for AppModel {
                     }
                 }
                 if self.todos.tick_recurrences(jiff::Timestamp::now()) {
+                    self.todos.sort();
                     self.save_config();
                 }
             }
@@ -399,7 +398,7 @@ impl cosmic::Application for AppModel {
                     }
                     self.sync_calendar_to_task(id);
                 }
-                self.todos.pop_completed();
+                self.todos.sort();
                 self.save_config();
             }
             Message::UpdateTitle(id, title) => {
@@ -413,7 +412,10 @@ impl cosmic::Application for AppModel {
                 let new_id = todo.id;
                 if !self.todos.insert_after(id, todo) {
                     // Fallback: if we can't find the target, just push to end.
-                    tracing::warn!("Failed to insert task after {}. Falling back to pushing to end.", id);
+                    tracing::warn!(
+                        "Failed to insert task after {}. Falling back to pushing to end.",
+                        id
+                    );
                     self.todos.push(Todo::default());
                 }
                 self.save_config();
@@ -492,6 +494,7 @@ impl cosmic::Application for AppModel {
                     self.calendar_model.selected = date;
                     self.calendar_model.visible = date;
                 }
+                self.todos.sort();
                 self.save_config();
             }
             Message::UpdateDeadlineTimeInput(id, input) => {
@@ -521,6 +524,7 @@ impl cosmic::Application for AppModel {
                         task.deadline = Some(zdt.timestamp());
                     }
                 }
+                self.todos.sort();
                 self.save_config();
             }
             Message::SetRecurrenceType(id, rtype) => {
@@ -549,6 +553,7 @@ impl cosmic::Application for AppModel {
                     };
                 }
                 self.apply_recurrence_and_sync_calendar(id);
+                self.todos.sort();
                 self.save_config();
             }
             Message::ClearDeadline(id) => {
@@ -557,6 +562,7 @@ impl cosmic::Application for AppModel {
                     task.recurrence = None;
                 }
                 self.sync_calendar_to_task(id);
+                self.todos.sort();
                 self.save_config();
             }
             Message::UpdateRecurrenceIntervalDays(id, val) => {
@@ -573,6 +579,7 @@ impl cosmic::Application for AppModel {
                     }
                 }
                 self.apply_recurrence_and_sync_calendar(id);
+                self.todos.sort();
                 self.save_config();
             }
             Message::UpdateRecurrenceIntervalHours(id, val) => {
@@ -589,6 +596,7 @@ impl cosmic::Application for AppModel {
                     }
                 }
                 self.apply_recurrence_and_sync_calendar(id);
+                self.todos.sort();
                 self.save_config();
             }
             Message::UpdateRecurrenceIntervalMinutes(id, val) => {
@@ -605,6 +613,7 @@ impl cosmic::Application for AppModel {
                     }
                 }
                 self.apply_recurrence_and_sync_calendar(id);
+                self.todos.sort();
                 self.save_config();
             }
             Message::ToggleWeekday(id, wd) => {
@@ -615,6 +624,7 @@ impl cosmic::Application for AppModel {
                     days.swap_remove(&wd);
                 }
                 self.apply_recurrence_and_sync_calendar(id);
+                self.todos.sort();
                 self.save_config();
             }
             Message::CalendarPrevMonth => {
@@ -726,7 +736,8 @@ impl AppModel {
                 widget::container(
                     widget::progress_bar(0.0..=1.0, progress).length(cosmic::iced::Length::Fill),
                 )
-                .width(cosmic::iced::Length::Fill)            )
+                .width(cosmic::iced::Length::Fill),
+            )
             .push(widget::text::body(format!(
                 "{} — {}m {:02}s",
                 phase.name, minutes, seconds
@@ -753,10 +764,9 @@ impl AppModel {
         let countdown = format_countdown(secs_abs, is_overdue);
 
         let countdown_text = if is_overdue {
-            widget::text::body(format!("\u{26a0} {countdown}"))
-                .class(cosmic::theme::Text::Color(
-                    cosmic::iced::Color::from_rgb(0.85, 0.3, 0.2),
-                ))
+            widget::text::body(format!("\u{26a0} {countdown}")).class(cosmic::theme::Text::Color(
+                cosmic::iced::Color::from_rgb(0.85, 0.3, 0.2),
+            ))
         } else {
             widget::text::body(countdown)
         };
@@ -770,8 +780,8 @@ impl AppModel {
                     } else {
                         task.title.clone()
                     })
-                        .width(cosmic::iced::Length::Fill)
-                        .align_x(cosmic::iced::alignment::Horizontal::Left),
+                    .width(cosmic::iced::Length::Fill)
+                    .align_x(cosmic::iced::alignment::Horizontal::Left),
                 )
                 .push(
                     countdown_text
@@ -1057,10 +1067,10 @@ fn rebuild_interval(days: &str, hrs: &str, mins: &str) -> jiff::Span {
 /// Granularity scales with magnitude: `5d`, `1d 3h`, `2h 15m`, `4m 30s`, `45s`.
 /// When `overdue` is true, appends `" overdue"`.
 fn format_countdown(secs_abs: u64, overdue: bool) -> String {
-    let days  = secs_abs / 86_400;
+    let days = secs_abs / 86_400;
     let hours = (secs_abs % 86_400) / 3_600;
-    let mins  = (secs_abs % 3_600) / 60;
-    let secs  = secs_abs % 60;
+    let mins = (secs_abs % 3_600) / 60;
+    let secs = secs_abs % 60;
 
     let s = if secs_abs >= 2 * 86_400 {
         format!("{days}d")
@@ -1074,11 +1084,7 @@ fn format_countdown(secs_abs: u64, overdue: bool) -> String {
         format!("{secs}s")
     };
 
-    if overdue {
-        format!("{s} overdue")
-    } else {
-        s
-    }
+    if overdue { format!("{s} overdue") } else { s }
 }
 
 impl AppModel {
