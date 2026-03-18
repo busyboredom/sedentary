@@ -95,6 +95,8 @@ enum Message {
     AddTodo,
     ToggleComplete(Uuid),
     UpdateTitle(Uuid, String),
+    /// Enter pressed in a task title — create a sibling todo below.
+    InsertTaskAfter(Uuid),
     ToggleNotes(Uuid),
     UpdateNotes(Uuid, cosmic::widget::text_editor::Action),
     /// Request deletion of a task (shows dialog).
@@ -343,6 +345,7 @@ impl cosmic::Application for AppModel {
                 let todo = Todo::default();
                 let id = todo.id;
                 if let Some(parent) = self.todos.find_mut(parent_id) {
+                    parent.collapsed = false;
                     parent.subtasks.push(todo);
                 }
                 self.save_config();
@@ -392,6 +395,18 @@ impl cosmic::Application for AppModel {
                 }
                 self.save_config();
             }
+            Message::InsertTaskAfter(id) => {
+                let todo = Todo::default();
+                let new_id = todo.id;
+                if !self.todos.insert_after(id, todo) {
+                    // Fallback: if we can't find the target, just push to end.
+                    tracing::warn!("Failed to insert task after {}. Falling back to pushing to end.", id);
+                    self.todos.push(Todo::default());
+                }
+                self.save_config();
+                return Self::focus_todo(new_id);
+            }
+
             Message::ToggleNotes(id) => {
                 if let Some(task) = self.todos.find_mut(id) {
                     task.show_notes = !task.show_notes;
@@ -796,57 +811,15 @@ fn view_task<'a>(
         .spacing(8)
         .align_y(cosmic::iced::Alignment::Center);
 
-    let mut left_handles = widget::row::with_capacity(2)
-        .spacing(2)
-        .align_y(cosmic::iced::Alignment::Center);
-
-    // Toggle collapse button or spacer
-    if !task.subtasks.is_empty() {
-        let icon_name = if task.collapsed {
-            "pan-end-symbolic"
-        } else {
-            "pan-down-symbolic"
-        };
-        left_handles = left_handles.push(
-            widget::button::icon(widget::icon::from_name(icon_name))
-                .on_press(Message::ToggleCollapse(id))
-                .padding(2),
-        );
-    } else {
-        left_handles = left_handles.push(widget::Space::new().width(20));
-    }
-
-    // Drag handle: press to start dragging, release to drop
-    left_handles = left_handles.push(
-        widget::mouse_area(
-            widget::container(widget::icon::from_name("grip-lines-symbolic")).padding(4),
-        )
-        .on_press(Message::DragStart(id))
-        .on_release(Message::DragEnd),
-    );
-
-    row = row.push(left_handles);
+    row = row.push(view_left_handles(id, task));
 
     row = row.push(widget::checkbox(task.complete).on_toggle(move |_| Message::ToggleComplete(id)));
 
     row = row.push(
         widget::text_input("Task title", &task.title)
             .id(widget::Id::new(id.to_string()))
-            .on_input(move |s| Message::UpdateTitle(id, s)),
-    );
-
-    let mut right_buttons = widget::row::with_capacity(4)
-        .spacing(2)
-        .align_y(cosmic::iced::Alignment::Center);
-
-    right_buttons = right_buttons.push(
-        widget::button::icon(widget::icon::from_name("list-add-symbolic"))
-            .on_press(Message::AddSubtask(id)),
-    );
-
-    right_buttons = right_buttons.push(
-        widget::button::icon(widget::icon::from_name("text-x-generic-symbolic"))
-            .on_press(Message::ToggleNotes(id)),
+            .on_input(move |s| Message::UpdateTitle(id, s))
+            .on_submit(move |_| Message::InsertTaskAfter(id)),
     );
 
     if let Some(timestamp) = task.deadline {
@@ -855,22 +828,7 @@ fn view_task<'a>(
         row = row.push(widget::text::body(date_str));
     }
 
-    let deadline_icon = if task.deadline.is_none() {
-        "appointment-new-symbolic"
-    } else {
-        "alarm-symbolic"
-    };
-
-    let deadline_btn = widget::button::icon(widget::icon::from_name(deadline_icon));
-
-    right_buttons = right_buttons.push(deadline_btn.on_press(Message::ToggleDatePicker(id)));
-
-    right_buttons = right_buttons.push(
-        widget::button::icon(widget::icon::from_name("edit-delete-symbolic"))
-            .on_press(Message::RequestDelete(id)),
-    );
-
-    row = row.push(right_buttons);
+    row = row.push(view_right_buttons(id, task));
 
     let task_area = widget::mouse_area(row)
         .on_move(move |point| {
@@ -917,6 +875,65 @@ fn view_task<'a>(
     }
 
     col.into()
+}
+
+fn view_left_handles(id: Uuid, task: &Todo) -> widget::Row<'_, Message> {
+    let mut row = widget::row::with_capacity(2)
+        .spacing(2)
+        .align_y(cosmic::iced::Alignment::Center);
+
+    if task.subtasks.is_empty() {
+        row = row.push(widget::Space::new().width(20));
+    } else {
+        let icon_name = if task.collapsed {
+            "pan-end-symbolic"
+        } else {
+            "pan-down-symbolic"
+        };
+        row = row.push(
+            widget::button::icon(widget::icon::from_name(icon_name))
+                .on_press(Message::ToggleCollapse(id))
+                .padding(2),
+        );
+    }
+
+    row.push(
+        widget::mouse_area(
+            widget::container(widget::icon::from_name("grip-lines-symbolic")).padding(4),
+        )
+        .on_press(Message::DragStart(id))
+        .on_release(Message::DragEnd),
+    )
+}
+
+fn view_right_buttons(id: Uuid, task: &Todo) -> widget::Row<'_, Message> {
+    let mut row = widget::row::with_capacity(4)
+        .spacing(2)
+        .align_y(cosmic::iced::Alignment::Center);
+
+    row = row.push(
+        widget::button::icon(widget::icon::from_name("list-add-symbolic"))
+            .on_press(Message::AddSubtask(id)),
+    );
+
+    row = row.push(
+        widget::button::icon(widget::icon::from_name("text-x-generic-symbolic"))
+            .on_press(Message::ToggleNotes(id)),
+    );
+
+    let deadline_icon = if task.deadline.is_none() {
+        "appointment-new-symbolic"
+    } else {
+        "alarm-symbolic"
+    };
+
+    let deadline_btn = widget::button::icon(widget::icon::from_name(deadline_icon));
+    row = row.push(deadline_btn.on_press(Message::ToggleDatePicker(id)));
+
+    row.push(
+        widget::button::icon(widget::icon::from_name("edit-delete-symbolic"))
+            .on_press(Message::RequestDelete(id)),
+    )
 }
 
 /// Renders visual feedback for the active drop zone around a task row.
