@@ -674,9 +674,10 @@ impl cosmic::Application for AppModel {
                 }),
             ];
 
-        if !self.paused {
-            subs.push(Subscription::run(|| {
-                cosmic::iced_futures::stream::channel(1, |mut emitter: cosmic::iced::futures::channel::mpsc::Sender<Message>| async move {
+        subs.push(Subscription::run(|| {
+            cosmic::iced_futures::stream::channel(
+                1,
+                |mut emitter: cosmic::iced::futures::channel::mpsc::Sender<Message>| async move {
                     let mut interval = tokio::time::interval(Duration::from_secs(1));
                     loop {
                         interval.tick().await;
@@ -685,9 +686,9 @@ impl cosmic::Application for AppModel {
                             break;
                         }
                     }
-                })
-            }));
-        }
+                },
+            )
+        }));
 
         Subscription::batch(subs)
     }
