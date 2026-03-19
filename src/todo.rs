@@ -362,6 +362,29 @@ impl TodoList {
         }
     }
 
+    /// Checks if any incomplete task's deadline falls in the interval (`last_tick`, now].
+    pub(crate) fn check_just_became_due(
+        &self,
+        last_tick: jiff::Timestamp,
+        now: jiff::Timestamp,
+    ) -> bool {
+        fn check_in(todos: &[Todo], last_tick: jiff::Timestamp, now: jiff::Timestamp) -> bool {
+            for todo in todos {
+                if !todo.complete
+                    && let Some(dl) = todo.deadline
+                    && last_tick < dl && dl <= now
+                {
+                    return true;
+                }
+                if check_in(&todo.subtasks, last_tick, now) {
+                    return true;
+                }
+            }
+            false
+        }
+        check_in(&self.items, last_tick, now)
+    }
+
     /// Check completed recurring tasks. If `now` is past the halfway point to their next deadline,
     /// uncheck them and advance the deadline. Returns true if any task was changed.
     pub(crate) fn tick_recurrences(&mut self, now: jiff::Timestamp) -> bool {
@@ -674,5 +697,40 @@ mod tests {
         let changed2 = list2.tick_recurrences(now);
         assert!(!changed2);
         assert!(list2.items()[0].complete);
+    }
+
+    #[test]
+    fn check_just_became_due_detects_crossed_deadline() {
+        let now = jiff::Timestamp::now();
+        let last_tick = now.checked_sub(jiff::Span::new().seconds(1)).unwrap();
+
+        // Task with deadline exactly `now` (crossed during this tick)
+        let t1 = Todo {
+            deadline: Some(now),
+            ..Default::default()
+        };
+
+        let list1 = TodoList::new(vec![t1]);
+        assert!(list1.check_just_became_due(last_tick, now));
+
+        // Task with deadline in the future
+        let future = now.checked_add(jiff::Span::new().seconds(10)).unwrap();
+        let t2 = Todo {
+            deadline: Some(future),
+            ..Default::default()
+        };
+
+        let list2 = TodoList::new(vec![t2]);
+        assert!(!list2.check_just_became_due(last_tick, now));
+
+        // Task with deadline in the past (before last_tick)
+        let past = last_tick.checked_sub(jiff::Span::new().seconds(10)).unwrap();
+        let t3 = Todo {
+            deadline: Some(past),
+            ..Default::default()
+        };
+
+        let list3 = TodoList::new(vec![t3]);
+        assert!(!list3.check_just_became_due(last_tick, now));
     }
 }

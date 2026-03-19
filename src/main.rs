@@ -56,6 +56,7 @@ struct AppModel {
     drag: DragState,
     active_date_picker: ActiveDatePicker,
     calendar_model: cosmic::widget::calendar::CalendarModel,
+    last_tick: jiff::Timestamp,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -197,6 +198,7 @@ impl cosmic::Application for AppModel {
                 selected: CALENDAR_EMPTY,
                 visible: jiff::Zoned::now().date(),
             },
+            last_tick: jiff::Timestamp::now(),
         };
 
         let mut tasks = vec![];
@@ -311,6 +313,12 @@ impl cosmic::Application for AppModel {
     fn update(&mut self, message: Self::Message) -> Task<Self::Message> {
         match message {
             Message::TimerTick => {
+                let now = jiff::Timestamp::now();
+                if self.todos.check_just_became_due(self.last_tick, now) {
+                    crate::water_break::due_chime();
+                }
+                self.last_tick = now;
+
                 if !self.paused {
                     if self.seconds_remaining > 0 {
                         self.seconds_remaining -= 1;
@@ -318,7 +326,7 @@ impl cosmic::Application for AppModel {
                         self.switch_phase();
                     }
                 }
-                if self.todos.tick_recurrences(jiff::Timestamp::now()) {
+                if self.todos.tick_recurrences(now) {
                     self.todos.sort();
                     self.save_config();
                 }

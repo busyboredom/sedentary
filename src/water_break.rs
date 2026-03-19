@@ -77,3 +77,23 @@ pub(crate) fn chime(on_break: bool) {
         }
     });
 }
+
+pub(crate) fn due_chime() {
+    thread::spawn(move || {
+        let play = || -> anyhow::Result<()> {
+            let mut handle = DeviceSinkBuilder::open_default_sink()
+                .context("Failed to open default audio sink for due chime")?;
+            handle.log_on_drop(false);
+            let player = Player::connect_new(handle.mixer());
+            let source = Decoder::new(Cursor::new(include_bytes!("../static/due.mp3").as_slice()))
+                .context("Failed to decode due.mp3")?;
+            player.append(source);
+            player.sleep_until_end();
+            Ok(())
+        };
+
+        if let Err(e) = play() {
+            tracing::error!("Failed to play due chime: {:?}", e);
+        }
+    });
+}
